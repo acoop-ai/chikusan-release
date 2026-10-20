@@ -123,9 +123,8 @@
     const role = data.principal?.role;
     const host = $('#role-actions'); host.replaceChildren();
     if (role === 'BY') {
-      host.append(makeButton('月度設定', () => openSettings('month'), 'button button-secondary'));
+      host.append(makeButton('月度設定', () => openSettings(), 'button button-secondary'));
       host.append(makeButton('商品マスター', () => openProductManager(), 'button button-secondary'));
-      host.append(makeButton('商品を追加', () => openProductEditor(), 'button button-primary'));
       host.append(makeButton('注文を保存', () => saveVisibleOrders(), 'button button-secondary'));
       host.append(makeButton('操作履歴', () => openAuditLog(), 'button button-secondary'));
     }
@@ -256,15 +255,29 @@
 
   function openProductManager() {
     const root = $('#modal-root');
-    root.innerHTML = `<div class="modal-backdrop"><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><h2 id="modal-title">商品マスター</h2><button type="button" class="modal-close" aria-label="閉じる">×</button></div><div class="product-manager"><input class="product-manager-search" type="search" placeholder="商品名・メーカー・JANで検索" aria-label="商品マスターを検索"><div class="product-manager-list"></div></div></section></div>`;
+    root.innerHTML = `<div class="modal-backdrop"><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><h2 id="modal-title">商品マスター・${esc(state.data?.month?.label || '対象月')}の商品</h2><button type="button" class="modal-close" aria-label="閉じる">×</button></div><div class="product-manager"><div class="product-manager-actions"><input class="product-manager-search" type="search" placeholder="商品名・読み・メーカー・JAN" aria-label="商品マスターを検索"><button type="button" class="button button-primary product-add">商品を追加</button></div><div class="product-manager-list"></div></div></section></div>`;
     const close = () => root.replaceChildren(); root.querySelector('.modal-close').addEventListener('click', close); root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target.classList.contains('modal-backdrop')) close(); });
     const search = root.querySelector('.product-manager-search'); const list = root.querySelector('.product-manager-list');
     const draw = () => {
-      const q = normalize(search.value); const products = (state.data?.products || []).filter((p) => normalize([p.name, p.manufacturer, p.specification, p.jan].join(' ')).includes(q));
+      const q = normalize(search.value); const products = (state.data?.productMaster || state.data?.products || []).filter((p) => normalize([p.name, p.manufacturer, p.specification, p.jan, ...(p.aliases || [])].join(' ')).includes(q));
       list.replaceChildren();
-      products.slice(0, 150).forEach((product) => { const button = document.createElement('button'); button.type = 'button'; button.className = 'product-manager-item'; const name = document.createElement('strong'); name.textContent = product.name || ''; const meta = document.createElement('small'); meta.textContent = [product.manufacturer, product.specification, product.jan].filter(Boolean).join('　'); button.append(name, meta); button.addEventListener('click', () => openProductEditor(product)); list.append(button); });
+      products.slice(0, 150).forEach((product) => {
+        const row = document.createElement('div'); row.className = 'product-manager-row';
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'product-manager-item';
+        const name = document.createElement('strong'); name.textContent = product.name || '';
+        const meta = document.createElement('small'); meta.textContent = [product.manufacturer, product.specification, product.jan].filter(Boolean).join('　');
+        edit.append(name, meta); edit.addEventListener('click', () => openProductEditor(product));
+        const included = new Set((state.data?.monthProductIds || []).map(String)).has(String(product.id));
+        const toggle = makeButton(included ? '今月から除外' : '今月に追加', async () => {
+          toggle.disabled = true;
+          try { await api('setMonthProduct', { month: state.data.month?.month, productId: product.id, included: !included, requestId: requestId() }); await refreshWorkspace(state.data.month?.month); draw(); }
+          catch (error) { toast(error.message, true); toggle.disabled = false; }
+        }, 'button button-secondary product-month-toggle');
+        row.append(edit, toggle); list.append(row);
+      });
       if (!products.length) { const empty = document.createElement('p'); empty.className = 'guide-footnote'; empty.textContent = '該当する商品はありません。'; list.append(empty); }
     };
+    root.querySelector('.product-add').addEventListener('click', () => openProductEditor());
     search.addEventListener('input', draw); draw();
   }
 
@@ -301,7 +314,7 @@
       const product = Object.fromEntries(['manufacturer', 'name', 'specification', 'jan', 'packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate'].map((key) => [key, form.elements[key].value]));
       product.productId = form.elements.productId.value || undefined;
       product.aliases = form.elements.aliases.value.split(/[、,，]/).map((s) => s.trim()).filter(Boolean);
-      await api('saveProduct', { product, requestId: requestId() }); await refreshWorkspace(state.data.month?.month); toast('商品を保存しました。');
+      await api('saveProduct', { product, month: state.data.month?.month, requestId: requestId() }); await refreshWorkspace(state.data.month?.month); toast('商品を保存しました。');
     });
   }
 
