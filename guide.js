@@ -1,5 +1,5 @@
 'use strict';
-// 利用ガイド（版 livestock-order-api-0.2.0）。本文はログインの後に GAS から受け取る（画面には本文を置かない）。
+// 利用ガイド（版 livestock-order-api-0.2.1）。本文はログインの後に GAS から受け取る（画面には本文を置かない）。
 
 const GUIDE_SESSION_KEY = 'livestock-order-session-v2';
 const GUIDE_GAS_URL = String((window.APP_CONFIG && window.APP_CONFIG.gasUrl) || '');
