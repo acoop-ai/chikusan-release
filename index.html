@@ -4,13 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self'; connect-src 'self' https://accounts.google.com https://accounts.google.com/gsi/ https://script.google.com https://script.googleusercontent.com; frame-src https://accounts.google.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style 'sha256-RU4sU0AaS8IBGZx8XrGt/pa9A5SLA3dQszGeqT5L3Kw='; connect-src 'self' https://accounts.google.com/gsi/ https://script.google.com https://script.googleusercontent.com; frame-src https://accounts.google.com/gsi/; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'">
   <meta name="referrer" content="no-referrer">
   <title>畜産発注システム</title>
+  <script src="oauth-return.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="config.js" defer></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="login.js" defer></script>
+  <script src="search-norm.js" defer></script>
+  <script src="search-words.js" defer></script>
   <script src="app.js" defer></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
 <body>
   <header class="topbar">
@@ -34,8 +38,8 @@
       </nav>
       <section class="side-note" id="deadline-note" hidden>
         <span class="side-note-icon" aria-hidden="true">✓</span>
-        <strong>締切前に確認 <a class="help-icon" href="guide.html#deadline" title="締切と注文確定の説明" aria-label="締切と注文確定の説明を開く">?</a></strong>
-        <p id="deadline-sidebar">ログイン後に対象月の締切を表示します。</p>
+        <strong>締切 <a class="help-icon" href="guide.html#deadline" title="締切と注文の確定の説明" aria-label="締切と注文の確定の説明を開く">?</a></strong>
+        <p id="deadline-sidebar">ログインすると、対象月の締切が出ます。</p>
       </section>
       <div class="sidebar-footer">社内専用システム</div>
     </aside>
@@ -45,10 +49,10 @@
         <div>
           <div class="eyebrow">ORDER MANAGEMENT</div>
           <h1>畜産 発注一覧</h1>
-          <p class="page-subtitle">店舗の注文を、倉庫へリアルタイムに共有します。</p>
+          <p class="page-subtitle">店舗の注文を、そのまま倉庫へ届けます。</p>
         </div>
         <div id="period-control" class="period-control" hidden>
-          <label for="month-select">対象月 <a class="help-icon" href="guide.html#month" title="対象月の切替について" aria-label="対象月の説明を開く">?</a></label>
+          <label for="month-select">対象月 <a class="help-icon" href="guide.html#month" title="対象月の切り替えについて" aria-label="対象月の説明を開く">?</a></label>
           <select id="month-select" aria-label="対象月"></select>
           <button id="print-button" class="button button-secondary" type="button">印刷</button>
         </div>
@@ -56,37 +60,40 @@
 
       <section id="notice" class="notice notice-info" role="status" aria-live="polite" hidden>
         <span class="notice-icon" aria-hidden="true">i</span>
-        <div><strong>会社アカウントでログインしてください</strong><p>認証前は画面の骨格と利用ガイドだけを表示します。</p></div>
+        <div><strong>お知らせ</strong><p></p></div>
       </section>
 
       <section id="login-panel" class="login-panel" aria-labelledby="login-title">
         <div class="login-illustration" aria-hidden="true"><span>畜</span><i>●</i></div>
         <div class="login-copy">
           <div class="eyebrow">SECURE SIGN IN</div>
-          <h2 id="login-title">社内アカウントでログイン</h2>
-          <p>会社指定のGoogleアカウントでログインしてください。</p>
-          <button id="login-button" class="button button-primary" type="button" disabled>ログイン準備中</button>
-          <p id="login-help" class="login-help">接続先を確認しています。</p>
+          <h2 id="login-title">会社のアカウントでログイン</h2>
+          <p>本部・店舗の Google アカウントでログインしてください。「Googleでログイン」を押すと、Google の画面へ移ってから、この画面に戻ります。</p>
+          <div id="inapp-warning" class="inapp-warning" role="alert" hidden></div>
+          <button id="login-button" class="button button-primary button-login" type="button" disabled>ログインの準備中</button>
+          <p id="login-help" class="login-help" aria-live="polite">接続先を確かめています。</p>
         </div>
       </section>
 
       <section id="workspace" hidden>
         <div class="summary-strip" id="summary-strip"></div>
-        <section class="toolbar" aria-label="一覧操作">
-          <div class="view-tabs" role="tablist" aria-label="表示方法">
+        <p id="role-notice" class="role-notice" hidden></p>
+        <section class="toolbar" aria-label="一覧の操作">
+          <div class="view-tabs" role="tablist" aria-label="表示の切り替え">
             <button class="view-tab is-active" type="button" data-view="week" role="tab" aria-selected="true">週ごと</button>
             <button class="view-tab" type="button" data-view="month" role="tab" aria-selected="false">月間合計</button>
           </div>
-          <div class="search-area"><div class="search-box"><span aria-hidden="true">⌕</span><input id="product-search" type="search" placeholder="商品名・メーカー・規格・JANで検索" aria-label="商品名・メーカー・規格・JANで検索" autocomplete="off" aria-controls="search-suggestions" aria-expanded="false"><span class="shortcut">商品検索</span><a class="help-icon" href="guide.html#search" title="商品検索と表記ゆれの説明" aria-label="商品検索の説明を開く">?</a></div><div id="search-suggestions" class="search-suggestions" hidden></div></div>
+          <div class="search-area"><div class="search-box"><span aria-hidden="true">⌕</span><input id="product-search" type="search" placeholder="商品を探す（ひらがな・ローマ字・JANでも）" aria-label="商品名・メーカー・規格・JANで探す" autocomplete="off" aria-controls="search-suggestions" aria-expanded="false"><a class="help-icon" href="guide.html#search" title="商品の探し方の説明" aria-label="商品の探し方の説明を開く">?</a></div><div id="search-suggestions" class="search-suggestions" hidden></div></div>
           <div id="role-actions" class="role-actions"></div>
         </section>
         <div id="warehouse-cap-control" class="setting-card" hidden></div>
         <div id="order-content" class="order-content" aria-live="polite"></div>
       </section>
 
-      <footer class="page-footer"><span>畜産 発注管理</span></footer>
+      <footer class="page-footer"><span>畜産 発注管理</span><span id="app-version" class="app-version">版 livestock-order-api-0.2.0</span></footer>
     </main>
   </div>
+  <div id="progress" class="progress-overlay" role="status" aria-live="polite" hidden><div><i aria-hidden="true"></i><span>読み込んでいます…</span></div></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="modal-root"></div>
 </body>

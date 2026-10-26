@@ -16,3 +16,62 @@
 [hidden]{display:none!important}.guide-button{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#46574b;text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap}.guide-button:hover{border-color:#b5caba;background:#f6faf7;color:var(--green)}.guide-button span{display:grid;place-items:center;width:17px;height:17px;border-radius:50%;background:var(--green-soft);color:var(--green);font-size:11px}.help-icon{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:3px;border:1px solid #cad8cd;border-radius:50%;color:#567662;text-decoration:none;font-size:10px;font-weight:600;vertical-align:middle}.help-icon:hover,.help-icon:focus{border-color:var(--green);background:var(--green);color:#fff}.guide-page{background:#f5f7f5}.guide-main{height:calc(100vh - var(--fixed-header));overflow:auto;max-width:920px;margin:0 auto;padding:36px 28px 50px}.guide-main h1{margin:8px 0;font-size:26px}.guide-intro{margin:0;color:var(--muted);font-size:12px}.guide-toc{display:flex;flex-wrap:wrap;gap:7px;margin:22px 0 18px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}.guide-toc a{padding:6px 9px;border-radius:6px;background:#f3f7f3;color:var(--green);text-decoration:none;font-size:10px}.guide-toc a:hover{background:#e6f1e8}.guide-sections{display:grid;gap:8px}.guide-sections section{scroll-margin-top:84px}.guide-sections details{border:1px solid var(--line);border-radius:9px;background:#fff}.guide-sections summary{position:relative;padding:14px 42px 14px 15px;color:#2b3c31;font-size:12px;font-weight:600;cursor:pointer;list-style:none}.guide-sections summary::-webkit-details-marker{display:none}.guide-sections summary:after{content:"＋";position:absolute;right:15px;top:12px;color:#7f9284;font-size:14px}.guide-sections details[open] summary:after{content:"−"}.guide-detail{padding:0 16px 15px;border-top:1px solid #edf1ed;color:#68766d;font-size:11px;line-height:1.85}.guide-detail p{margin:11px 0 0}.guide-detail ul,.guide-detail ol{margin:11px 0 0;padding-left:20px}.guide-detail li+li{margin-top:4px}.guide-support{margin-top:19px;font-size:11px}.guide-support a{color:var(--green)}
 .toolbar,.role-actions{flex-wrap:wrap}
 @media(max-width:680px){.account-area{gap:6px}.account-label{display:none}.guide-button{padding:6px 8px;font-size:10px}.guide-main{height:calc(100dvh - var(--fixed-header));padding:25px 14px 38px}.guide-main h1{font-size:23px}.guide-toc{gap:5px;padding:9px}.guide-toc a{padding:6px 7px;font-size:9px}.guide-sections summary{padding:13px 38px 13px 12px}.guide-detail{padding:0 12px 13px}.audit-line{flex-wrap:wrap;gap:6px}.audit-line time{margin-left:0}.audit-diff{grid-template-columns:1fr}.audit-list{padding:11px}.role-actions{width:100%;justify-content:flex-end}}
+/* 0.2.0: 読みやすい大きさ・自店の強調（Q4A）・左の列の固定・保存していない入力・ログインの案内・版の表示 */
+.order-table{font-size:12px}.order-table thead th{font-size:11px}.order-table th small{font-size:9px}.product-cell small{font-size:10px}.product-details{font-size:10px}
+.order-table .col-date{position:sticky;left:0;z-index:1;min-width:64px;width:64px;background:#fff}
+.order-table .col-maker{position:sticky;left:64px;z-index:1;min-width:96px;max-width:120px;white-space:normal;background:#fff;text-align:left}
+.order-table .col-product{position:sticky;left:160px;z-index:1;background:#fff;box-shadow:inset -1px 0 0 #dfe7e0}
+.month-table .col-maker{left:0}.month-table .col-product{left:96px}
+.order-table thead th.col-date,.order-table thead th.col-maker,.order-table thead th.col-product{z-index:4;background:#f6f8f6}
+.soldout-row .col-date,.soldout-row .col-maker,.soldout-row .col-product{background:#f2f3f2}
+.outside-month-row .col-date,.outside-month-row .col-maker,.outside-month-row .col-product{background:#f7f8f7}
+.maker-inline{display:none!important}
+.order-table thead th.store-head.is-own{background:#2f7a52;color:#fff;box-shadow:inset 0 -3px 0 #1d5b3a}
+.order-table thead th.store-head.is-own small{color:#e3f2e8}
+.own-badge{display:inline-block;margin:0 0 3px;padding:1px 7px;border-radius:9px;background:#fff;color:#1d5b3a;font-size:10px;font-weight:700;letter-spacing:.04em}
+.store-cell.is-own,.store-cell.is-own.is-empty{background:#e2f1e6;box-shadow:inset 2px 0 0 #6aa982,inset -2px 0 0 #6aa982;color:#1d4a31}
+.store-cell.is-own input:not(:disabled){border:2px solid #3f8a5f;background:#fff;font-weight:700}
+.store-cell input{width:68px;font-size:13px}
+.store-cell input.is-pending{border-color:#d29a2e!important;background:#fff8e8!important}
+.save-orders.has-pending{box-shadow:0 0 0 3px #f3dcae}
+.summary-strip.has-four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.summary-card strong{font-size:16px}
+.role-notice{margin:0 0 12px;padding:11px 14px;border:1px solid #cfe3d5;border-left:4px solid #3f8a5f;border-radius:8px;background:#f4faf5;color:#2b4434;font-size:13px;line-height:1.7}
+.role-notice.is-wait{border-color:#ecd9b4;border-left-color:#c58a1e;background:#fffaf0;color:#5b4210}
+.button-login{min-height:44px;padding:10px 18px;font-size:14px}
+.login-help{font-size:12px!important;color:#5f6d64!important;line-height:1.7}
+.inapp-warning{margin:0 0 14px;padding:12px 14px;border:2px solid #e2b55a;border-radius:10px;background:#fff8e8;color:#5b4210;font-size:12px;line-height:1.7}
+.inapp-warning strong{display:block;font-size:13px}.inapp-warning p{margin:4px 0}.inapp-warning .button{margin:6px 0}
+.inapp-url{display:block;margin-top:4px;padding:7px 8px;border:1px solid #ecd9b4;border-radius:7px;background:#fff;color:#334;font-size:11px;word-break:break-all;user-select:all;-webkit-user-select:all}
+.progress-overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:#f5f7f5cc}
+.progress-overlay>div{display:flex;align-items:center;gap:12px;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 8px 26px #1838221f;color:var(--ink);font-size:14px}
+.progress-overlay i{width:18px;height:18px;border:3px solid #cfe3d5;border-top-color:var(--green);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.app-version{color:#6f7d74;font-size:11px}.app-version.is-mismatch{padding:2px 8px;border-radius:7px;background:#fff0ee;color:#9c3932;font-weight:700}
+.form-note{margin:-4px 0 0;color:#6b5a2e;font-size:11px;line-height:1.6}
+.notice p{font-size:12px}.notice strong{font-size:13px}
+@media(max-width:900px){.summary-strip.has-four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){
+  .order-table .col-maker{display:none}
+  .maker-inline{display:block!important;margin:0 0 2px!important}
+  .order-table .col-date{min-width:54px;width:54px}
+  .order-table .col-product{left:54px;min-width:140px;max-width:160px}
+  .month-table .col-product{left:0}
+  .summary-strip.has-four{grid-template-columns:1fr 1fr}
+  .role-notice{font-size:12px}
+}
+@media print{.order-table .col-date,.order-table .col-maker,.order-table .col-product{position:static;box-shadow:none}.role-notice,.progress-overlay,.inapp-warning{display:none!important}.store-cell input{border:0;background:transparent;width:auto}}
+/* 0.2.0 の直し: 商品の欄は左寄せ・スマホでは商品の欄を細く・上の札を小さく・保存のボタンを表示の切り替えと同じ行に */
+.order-table td.col-product{text-align:left}
+@media(max-width:680px){
+  .order-table th.col-product,.order-table td.col-product{min-width:136px;max-width:150px;width:146px}
+  .summary-card{padding:7px 10px}.summary-card span{font-size:10px}.summary-card strong{margin-top:2px;font-size:14px}
+  .toolbar .role-actions{width:auto;margin-left:auto}
+  .page-heading{margin-bottom:12px}.page-subtitle{display:none}
+}
+/* 見るだけの欄は数だけ（倉庫・ほかの店）。注文のある欄は白地に太字・無い欄は灰色 */
+.qty-view{display:inline-block;min-width:44px;min-height:20px;font-size:13px;font-weight:700;color:#17442f}
+.store-cell.has-qty{background:#fff}
+.store-cell.is-empty:not(.is-own){background:#eceeec}
+.outside-month-row .store-cell.is-empty:not(.is-own){background:#f4f5f4}
+.week-card{scroll-margin-top:72px}

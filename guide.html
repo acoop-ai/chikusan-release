@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'">
   <meta name="referrer" content="no-referrer">
   <title>利用ガイド | 畜産発注</title>
+  <script src="oauth-return.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="config.js" defer></script>
   <script src="guide.js" defer></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
 <body class="guide-page">
   <header class="topbar">
@@ -21,8 +23,8 @@
     <div id="guide-content" class="guide-sections" aria-live="polite">
       <section class="week-card guide-placeholder" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line short"></div></section>
     </div>
-    <p id="guide-status" class="guide-intro" role="status">ログインすると利用ガイドを表示します。</p>
-    <p class="guide-support"><a href="index.html">発注画面へ戻る</a></p>
+    <p id="guide-status" class="guide-intro" role="status">ログインすると、利用ガイドを表示します。<a href="index.html">発注画面でログインする</a></p>
+    <p class="guide-support"><a href="index.html">発注画面へ戻る</a>　<span class="app-version">版 livestock-order-api-0.2.0</span></p>
   </main>
 </body>
 </html>

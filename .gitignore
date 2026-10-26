@@ -1,0 +1,16 @@
+# 公開用（GitHub Pages）。画面のファイルだけを置く。鍵・データ・資料は置かない。
+gh_token*
+.env
+.env.*
+*.token
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.pdf
+*.docx
+*.zip
+*.md
+node_modules/
+.DS_Store
+Thumbs.db
