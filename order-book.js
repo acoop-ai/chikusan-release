@@ -1,9 +1,10 @@
 // 注文の Excel（xlsx）を作る部品と、行ごとの「確定・未確定」の決まり。外の部品は使わない（zip は縮めない stored・CRC32 は自前）。window.OrderBook
 //   画面（app.js の印刷と Excel でダウンロード）と試験が使う。中身は GAS の exportOrders が返した保存済みの値だけ（画面の入力途中の値は入れない）。
-// 確定・未確定の決まり（いまの作り: 締切は月ごとに1つ・締切を過ぎると確定〈1時間ごとの自動か、BY の保存で確定の印〉・上限に達した後の日付は SOLD OUT）:
-//   確定（締切後）＝その月の締切を過ぎた（店はもう直せない）。月の全部の行が同じ。
-//   確定（SOLD OUT）＝締切の前でも、上限に達した後の日付（その日は、もう注文を増やせない）。
-//   未確定＝締切の前（締切の日時まで、数が変わりうる）。締切が決まっていない月は「未確定（締切未設定）」。
+// 確定・未確定の決まり（0.2.4・PO 2026-10-28）。行＝着く日 D × 商品。次のどれか1つでも当たれば確定（店は直せない・BY と倉庫は直せる）:
+//   ①商品の締切: 商品ごとの「締切（何日前）」N（必ず入れる）。（D − N 日）の 12:00（日本時間）を過ぎたら確定 →「確定（2日前 12:00 の締切）」
+//   ②月の締切（MonthlyConfig）を過ぎた →「確定（月の締切）」　③SOLD OUT（在庫量に達した後の日付）→「確定（SOLD OUT）」
+//   締切（何日前）の無い商品は「締切が未設定」＝店は入れられない。未確定は「M/D HH:MM まで直せる」（①と②の早い方）。
+//   GAS の rowLock_ と同じ決まり（試験が同じかを見る）。日本時間は +9 時間で決める（夏時間なし）
 (function (root) {
   'use strict';
   const MAIN_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -12,23 +13,49 @@
 
   // ------------------------------------------------------------ 確定・未確定（画面・印刷・Excel で同じ）
   function shortDeadline(config) { return String((config && config.deadlineLabel) || '').replace(/^\d{4}\//, ''); }
-  /** 行の状態: { code: 'closed'|'soldout'|'open'|'nodeadline'|'', mark: '確定'|'未確定'|'', label: Excel・印刷の言葉 } */
-  function rowStatus(row, config) {
+  const LEAD_CUTOFF_HOUR = 12, MAX_LEAD_DAYS = 30, JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const p2 = (n) => String(n).padStart(2, '0');
+  /** 締切（何日前）。0〜30 の整数でなければ null（締切が未設定） */
+  function leadDaysOf(value) { const n = Number(value); return value === '' || value == null || typeof value === 'boolean' || !Number.isInteger(n) || n < 0 || n > MAX_LEAD_DAYS ? null : n; }
+  /** 商品の締切の時刻（ミリ秒）＝（D − N 日）の 12:00 日本時間 */
+  function leadCutoffMs(date, leadDays) { const [y, m, d] = String(date).split('-').map(Number); return Date.UTC(y, m - 1, d - leadDays, LEAD_CUTOFF_HOUR, 0, 0) - JST_OFFSET_MS; }
+  function jstLabel(ms) { const d = new Date(ms + JST_OFFSET_MS); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + ' ' + p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()); }
+  /** 日本時間のいまの日付（yyyy-MM-dd）。画面の「今日」 */
+  function jstToday(nowMs) { return new Date((nowMs == null ? Date.now() : nowMs) + JST_OFFSET_MS).toISOString().slice(0, 10); }
+  const leadName = (n) => (n === 0 ? '当日' : n + '日前') + ' 12:00';
+  /**
+   * 行の状態（GAS の rowLock_ と同じ決まり）。返す値:
+   *   { code: 'lead'|'month'|'soldout'|'nolead'|'open'|'nodeadline'|'', locked（店が直せない）, mark: '確定'|'未確定'|'未設定'|'', label: 印刷・Excel の言葉, until: 'M/D HH:MM' }
+   *   product: その行の商品（leadDays）。nowMs: いまの時刻（省くと今）
+   */
+  function rowStatus(row, config, product, nowMs) {
     config = config || {};
-    if (!row || row.inMonth === false) return { code: '', mark: '', label: '' };
-    if (config.confirmed) return { code: 'closed', mark: '確定', label: '確定（締切後）' };
-    if (row.soldOut) return { code: 'soldout', mark: '確定', label: '確定（SOLD OUT）' };
-    if (config.deadline) return { code: 'open', mark: '未確定', label: '未確定（' + shortDeadline(config) + ' まで変わる）' };
-    return { code: 'nodeadline', mark: '未確定', label: '未確定（締切未設定）' };
+    if (!row || row.inMonth === false) return { code: '', locked: false, mark: '', label: '', until: '' };
+    const now = nowMs == null ? Date.now() : nowMs;
+    const n = leadDaysOf(product && product.leadDays);
+    const month = config.deadline ? new Date(config.deadline).getTime() : NaN;
+    const monthPassed = Boolean(config.confirmed) || (Number.isFinite(month) && now >= month);
+    const out = (code, until) => {
+      const locked = code === 'lead' || code === 'month' || code === 'soldout' || code === 'nolead';
+      const label = code === 'lead' ? '確定（' + leadName(n) + ' の締切）' : code === 'month' ? '確定（月の締切）' : code === 'soldout' ? '確定（SOLD OUT）' : code === 'nolead' ? '締切が未設定（入れられません）' : code === 'nodeadline' ? '未確定（月の締切が未設定）' : until + ' まで直せる';
+      return { code, locked, mark: code === 'nolead' ? '未設定' : (locked ? '確定' : '未確定'), label, until, leadDays: n };
+    };
+    if (n === null) return monthPassed ? out('month', Number.isFinite(month) ? jstLabel(month) : '') : out('nolead', '');
+    const lead = leadCutoffMs(row.date, n); const leadPassed = now >= lead;
+    if (leadPassed && (!monthPassed || !Number.isFinite(month) || lead <= month)) return out('lead', jstLabel(lead));
+    if (monthPassed) return out('month', Number.isFinite(month) ? jstLabel(month) : '');
+    if (row.soldOut) return out('soldout', '');
+    if (!Number.isFinite(month)) return out('nodeadline', jstLabel(lead));
+    return out('open', lead <= month ? jstLabel(lead) : jstLabel(month));
   }
   /** 月の状態の1行（印刷の上・Excel の上） */
   function monthStatusText(config) {
     config = config || {};
     if (config.confirmed) return '締切後（確定）・締切 ' + (config.deadlineLabel || '');
-    if (config.deadline) return '受付中・' + shortDeadline(config) + ' の締切まで数が変わります';
+    if (config.deadline) return '受付中・月の締切 ' + shortDeadline(config) + '（商品ごとに、着く日の何日前かでも締め切ります）';
     return '締切未設定（まだ注文を受けていません）';
   }
-  const LEGEND = '印の見方: 確定＝締切後（店は直せません）／確定・SOLD OUT＝上限に達した後の日付（その日は増えません）／未確定＝締切まで変わります（網かけ）';
+  const LEGEND = '印の見方: 確定＝締切を過ぎた（商品ごとの「着く日の何日前の 12:00」か、月の締切）・SOLD OUT の日。店は直せません（BY・倉庫は直せます）／未確定＝表示の日時まで直せます（網かけ）／未設定＝その商品の締切がまだ決まっていません';
 
   // ------------------------------------------------------------ zip（縮めない stored）と CRC32
   const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -132,8 +159,8 @@
   }
 
   // ------------------------------------------------------------ 注文の帳面（週ごとのシート＋月間合計）
-  const p2 = (n) => String(n).padStart(2, '0');
-  const stamp = (d) => d.getFullYear() + '/' + p2(d.getMonth() + 1) + '/' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  const jst = (d) => new Date(d.getTime() + JST_OFFSET_MS); // 日本時間（画面の時計の地域に関わらず）
+  const stamp = (d) => { const j = jst(d); return j.getUTCFullYear() + '/' + p2(j.getUTCMonth() + 1) + '/' + p2(j.getUTCDate()) + ' ' + p2(j.getUTCHours()) + ':' + p2(j.getUTCMinutes()); };
   function dayLabel(date) { const [y, m, d] = String(date).split('-').map(Number); const wd = new Date(y, m - 1, d).getDay(); return m + '/' + d + '（' + WEEKDAY.charAt(wd) + '）'; }
   const md = (date) => { const [, m, d] = String(date).split('-').map(Number); return m + '-' + d; };
   const storeLabel = (s) => s.short || s.name || s.id;
@@ -157,28 +184,27 @@
       const name = sheetName((w.label || '週') + ' ' + md(first) + '〜' + md(last), used);
       const head = ['日付', '状態', 'メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['合計']).map((v) => ({ v, s: 'head' }));
       const body = rows.map((r) => {
-        const p = products.get(String(r.productId)); const st = rowStatus(r, config);
+        const p = products.get(String(r.productId)); const st = rowStatus(r, config, p, when.getTime());
         const qty = stores.map((s) => { const v = r.quantities && r.quantities[s.id]; return v == null || v === '' || Number(v) === 0 ? { v: '', s: 'num' } : { v: Number(v), s: 'num' }; });
         const total = sum(r.quantities, stores);
-        return [{ v: dayLabel(r.date), s: 'text' }, { v: st.label, s: st.code === 'open' || st.code === 'nodeadline' ? 'open' : 'text' }, { v: p.manufacturer || '', s: 'text' }, { v: p.name || '', s: 'text' }, { v: p.specification || '', s: 'text' }, { v: String(p.jan || ''), s: 'jan' }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: 'num' }].concat(qty, [{ v: total || '', s: 'num' }]);
+        return [{ v: dayLabel(r.date), s: 'text' }, { v: st.label, s: st.locked ? 'text' : 'open' }, { v: p.manufacturer || '', s: 'text' }, { v: p.name || '', s: 'text' }, { v: p.specification || '', s: 'text' }, { v: String(p.jan || ''), s: 'jan' }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: 'num' }].concat(qty, [{ v: total || '', s: 'num' }]);
       });
       const foot = [{ v: '週の合計', s: 'totalLabel' }].concat(Array(6).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: rows.reduce((n, r) => n + (Number(r.quantities && r.quantities[s.id]) || 0), 0), s: 'total' })), [{ v: rows.reduce((n, r) => n + sum(r.quantities, stores), 0), s: 'total' }]);
       sheets.push({ name, headerRow: 5, freezeCols: 4, filter: true, widths: [11, 18, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8]), rows: top('畜産 発注書　' + (config.label || '') + '　' + (w.label || '') + '（' + dayLabel(first) + '〜' + dayLabel(last) + '）').concat([head], body, [foot]) });
     });
     // 月間合計
-    const cap = Boolean(config.capEnabled);
-    const head = ['メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['月計'], cap ? ['上限', '残数'] : []).map((v) => ({ v, s: 'head' }));
+    const head = ['メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['月計'], ['在庫量', '残数', '不足']).map((v) => ({ v, s: 'head' }));
     const totals = data.monthTotals || {}; const caps = data.caps || {};
     const body = (data.products || []).map((p) => {
       const t = sum(totals[p.id], stores); const c = caps[p.id];
       return [{ v: p.manufacturer || '', s: 'text' }, { v: p.name || '', s: 'text' }, { v: p.specification || '', s: 'text' }, { v: String(p.jan || ''), s: 'jan' }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: 'num' }]
-        .concat(stores.map((s) => { const v = Number(totals[p.id] && totals[p.id][s.id]) || 0; return { v: v || '', s: 'num' }; }), [{ v: t || '', s: 'num' }], cap ? [{ v: c == null ? '' : Number(c), s: 'num' }, { v: c == null ? '' : Math.max(0, Number(c) - t), s: 'num' }] : []);
+        .concat(stores.map((s) => { const v = Number(totals[p.id] && totals[p.id][s.id]) || 0; return { v: v || '', s: 'num' }; }), [{ v: t || '', s: 'num' }], [{ v: c == null ? '' : Number(c), s: 'num' }, { v: c == null ? '' : Math.max(0, Number(c) - t), s: 'num' }, { v: c != null && t > Number(c) ? t - Number(c) : '', s: 'num' }]);
     });
-    const foot = [{ v: '総合計', s: 'totalLabel' }].concat(Array(4).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: (data.products || []).reduce((n, p) => n + (Number(totals[p.id] && totals[p.id][s.id]) || 0), 0), s: 'total' })), [{ v: (data.products || []).reduce((n, p) => n + sum(totals[p.id], stores), 0), s: 'total' }], cap ? [{ v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }] : []);
-    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 2, filter: true, widths: [14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], cap ? [7, 7] : []), rows: top('畜産 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
-    const fileName = '畜産発注_' + (config.label || config.month || '') + '_' + when.getFullYear() + p2(when.getMonth() + 1) + p2(when.getDate()) + '-' + p2(when.getHours()) + p2(when.getMinutes()) + '.xlsx';
+    const foot = [{ v: '総合計', s: 'totalLabel' }].concat(Array(4).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: (data.products || []).reduce((n, p) => n + (Number(totals[p.id] && totals[p.id][s.id]) || 0), 0), s: 'total' })), [{ v: (data.products || []).reduce((n, p) => n + sum(totals[p.id], stores), 0), s: 'total' }], [{ v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }]);
+    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 2, filter: true, widths: [14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], [8, 7, 9]), rows: top('畜産 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
+    const wj = jst(when); const fileName = '畜産発注_' + (config.label || config.month || '') + '_' + wj.getUTCFullYear() + p2(wj.getUTCMonth() + 1) + p2(wj.getUTCDate()) + '-' + p2(wj.getUTCHours()) + p2(wj.getUTCMinutes()) + '.xlsx';
     return { bytes: writeXlsx(sheets, when), fileName, sheetNames: sheets.map((s) => s.name) };
   }
 
-  root.OrderBook = Object.freeze({ rowStatus, monthStatusText, LEGEND, shortDeadline, crc32, zipStored, writeXlsx, sheetName, dayLabel, build, stamp });
+  root.OrderBook = Object.freeze({ rowStatus, monthStatusText, LEGEND, shortDeadline, leadDaysOf, leadCutoffMs, jstLabel, jstToday, LEAD_CUTOFF_HOUR, MAX_LEAD_DAYS, crc32, zipStored, writeXlsx, sheetName, dayLabel, build, stamp });
 })(typeof window !== 'undefined' ? window : globalThis);

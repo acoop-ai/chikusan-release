@@ -1,5 +1,5 @@
 'use strict';
-// 利用ガイド（版 livestock-order-api-0.2.3）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
+// 利用ガイド（版 livestock-order-api-0.2.4）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
 //   形（全システム共通の型）: 上に役割のタブ（畜産BY・店舗・倉庫）・全体の流れの図1枚・左に目次（本文と連動）・右に本文。
 //   図は GAS が返す「箱と番号の丸」の構造のデータを、ここで DOM に描く。文字は全部 textContent（GAS の文字を HTML として入れない）。
 
@@ -172,18 +172,29 @@ async function loadGuide() {
   const session = readSessionToken();
   if (!session) return;
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GUIDE_GAS_URL)) { status.textContent = '利用ガイドの接続の準備中です。'; return; }
+  // 待ちの印（フリーズに見せない）: 印と文字・8 秒で「時間がかかっています」・30 秒で止めて「もう一度」
+  const say = (t) => { const s = document.createElement('span'); s.className = 'spinner'; s.setAttribute('aria-hidden', 'true'); status.replaceChildren(s, document.createTextNode(t)); };
+  status.hidden = false; status.classList.add('is-loading'); say('利用ガイドを読み込んでいます…');
+  const slow = window.setTimeout(() => say('時間がかかっています（通信を確かめています）…'), 8000);
+  const controller = typeof AbortController === 'function' ? new AbortController() : null; let gaveUp = false;
+  const giveUp = controller ? window.setTimeout(() => { gaveUp = true; controller.abort(); }, 30000) : 0;
   try {
     const response = await fetch(GUIDE_GAS_URL, {
       method: 'POST', mode: 'cors', redirect: 'follow', cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'getGuide', session: session, data: {} })
+      body: JSON.stringify({ action: 'getGuide', session: session, data: {} }),
+      signal: controller ? controller.signal : undefined
     });
     const result = await response.json();
     if (!response.ok || !result || result.ok !== true) throw new Error('guide unavailable');
+    status.classList.remove('is-loading');
     renderGuide(result.data || {});
   } catch {
-    status.textContent = 'ガイドを読み込めませんでした。発注画面でログインし直してから、もう一度開いてください。';
-  }
+    status.classList.remove('is-loading');
+    status.textContent = gaveUp ? '30 秒たっても返事がありません。通信を確かめてください。' : 'ガイドを読み込めませんでした。発注画面でログインし直してから、もう一度開いてください。';
+    const again = document.createElement('button'); again.type = 'button'; again.className = 'button button-secondary notice-retry'; again.textContent = 'もう一度';
+    again.addEventListener('click', () => loadGuide()); status.append(again);
+  } finally { window.clearTimeout(slow); if (giveUp) window.clearTimeout(giveUp); }
 }
 
 window.addEventListener('DOMContentLoaded', () => {

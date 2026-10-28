@@ -7,15 +7,15 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style 'sha256-RU4sU0AaS8IBGZx8XrGt/pa9A5SLA3dQszGeqT5L3Kw='; connect-src 'self' https://accounts.google.com/gsi/ https://script.google.com https://script.googleusercontent.com; frame-src https://accounts.google.com/gsi/; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'">
   <meta name="referrer" content="no-referrer">
   <title>畜産発注システム</title>
-  <script src="oauth-return.js"></script>
-  <link rel="stylesheet" href="styles.css">
-  <script src="config.js" defer></script>
-  <script src="login.js" defer></script>
-  <script src="search-norm.js" defer></script>
-  <script src="search-words.js" defer></script>
-  <script src="product-sheet.js" defer></script>
-  <script src="order-book.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="oauth-return.js?v=livestock-order-api-0.2.4"></script>
+  <link rel="stylesheet" href="styles.css?v=livestock-order-api-0.2.4">
+  <script src="config.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="login.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="search-norm.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="search-words.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="product-sheet.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="order-book.js?v=livestock-order-api-0.2.4" defer></script>
+  <script src="app.js?v=livestock-order-api-0.2.4" defer></script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
 <body>
@@ -76,6 +76,7 @@
         <div id="print-head" class="print-only" aria-hidden="true"></div>
         <div class="summary-line" id="summary-strip"></div>
         <p id="role-notice" class="role-notice" hidden></p>
+        <div id="lead-warning" class="lead-warning" role="status" hidden></div>
         <section class="toolbar" aria-label="一覧の操作">
           <div class="view-tabs" role="tablist" aria-label="表示の切り替え">
             <button class="view-tab is-active" type="button" data-view="week" role="tab" aria-selected="true">週ごと</button>
@@ -84,12 +85,11 @@
           <div class="search-area"><div class="search-box"><span aria-hidden="true">⌕</span><input id="product-search" type="search" placeholder="商品を探す（ひらがな・ローマ字・JANでも）" aria-label="商品名・メーカー・規格・JANで探す" autocomplete="off" aria-controls="search-suggestions" aria-expanded="false"><a class="help-icon" href="guide.html#search" title="商品の探し方の説明" aria-label="商品の探し方の説明を開く">?</a></div><div id="search-suggestions" class="search-suggestions" hidden></div></div>
           <div id="role-actions" class="role-actions"></div>
         </section>
-        <div id="warehouse-cap-control" class="setting-card" hidden></div>
         <div id="order-content" class="order-content" aria-live="polite"></div>
         <div id="print-all" class="print-only" aria-hidden="true"></div>
       </section>
 
-      <footer class="page-footer"><span>畜産 発注管理</span><span id="app-version" class="app-version">版 livestock-order-api-0.2.3</span></footer>
+      <footer class="page-footer"><span>畜産 発注管理</span><span id="app-version" class="app-version">版 livestock-order-api-0.2.4</span></footer>
     </main>
   </div>
   <div id="progress" class="progress-overlay" role="status" aria-live="polite" hidden><div><i aria-hidden="true"></i><span>読み込んでいます…</span></div></div>

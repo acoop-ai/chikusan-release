@@ -2,7 +2,7 @@
 //   画面（app.js）と試験（tests/test_frontend.js）が使う。window.ProductSheet。
 // 信頼境界: 用紙の中身は人が書いた文字。ここでは値として扱うだけ（画面に出すときは、app.js が textContent か esc() を通す）。
 // GAS（Code.gs の productItem_・fillComputed_・matchKey_・saveProductsBatch_）が、同じ決まりで全部を確かめ直す（画面を信じない）。
-//   決まり（税率・照合の鍵・JAN の直し方・数の確かめ・重なり）を変えるときは、両方を直す。試験が、両方で同じかを見る。
+//   決まり（税率・照合の鍵・JAN の直し方・欄の決まり fieldProblem・重なり）を変えるときは、両方を直す。試験が、両方で同じかを見る。
 (function (root) {
   'use strict';
   const TAX_PERCENT = 8;                 // 税込（総額）＝本体 ×（100＋8）÷100 の端数切り捨て。GAS の TAX_PERCENT と同じ値（試験で確かめる）
@@ -11,6 +11,7 @@
   const MAX_PART_BYTES = 20 * 1024 * 1024; // 中の1つのファイルを開いた大きさの上限（壊れた・細工した用紙で止まらないように）
   const SHEET_NAME = '入力';
   const NUMBER_MAX = 9999999;
+  // 見出しの名前で列を探す（並びは決め打ちしない・「※必須」は外して比べる）。old＝0.2.3 までの11列の用紙だけにある列（読むだけ・いまの用紙には無い）
   const COLUMNS = [
     { key: 'manufacturer', label: 'メーカー', kind: 'text', names: ['メーカー', 'メーカー名'] },
     { key: 'name', label: '商品名', kind: 'text', names: ['商品名'] },
@@ -18,15 +19,43 @@
     { key: 'jan', label: 'JAN', kind: 'jan', names: ['JAN', 'JANコード'] },
     { key: 'packSize', label: '入数', kind: 'number', names: ['入数'] },
     { key: 'costNet', label: '原価（本体）', kind: 'number', names: ['原価（本体）', '原価'] },
-    { key: 'costGross', label: '原価（総額）', kind: 'number', names: ['原価（総額）', '原価（税込）'] },
+    { key: 'costGross', label: '原価（総額）', kind: 'number', names: ['原価（総額）', '原価（税込）'], old: true },
     { key: 'priceNet', label: '売価（本体）', kind: 'number', names: ['売価（本体）', '売価'] },
-    { key: 'priceGross', label: '売価（総額）', kind: 'number', names: ['売価（総額）', '売価（税込）'] },
-    { key: 'marginRate', label: '値入率', kind: 'number', names: ['値入率'] },
-    { key: 'aliases', label: '別名', kind: 'aliases', names: ['別名', '検索用の読み・別名', '読み・別名'] }
+    { key: 'priceGross', label: '売価（総額）', kind: 'number', names: ['売価（総額）', '売価（税込）'], old: true },
+    { key: 'marginRate', label: '値入率', kind: 'number', names: ['値入率'], old: true },
+    { key: 'aliases', label: '別名', kind: 'aliases', names: ['別名', '検索用の読み・別名', '読み・別名'], old: true },
+    { key: 'leadDays', label: '締切（何日前）', kind: 'lead', names: ['締切（何日前）', '締切(何日前)', '締切', '何日前'] }
   ];
+  const TEMPLATE_KEYS = COLUMNS.filter((c) => !c.old).map((c) => c.key); // いまの登録用紙の8列（8つとも「※必須」）
+  const FILL_LATER = ['manufacturer', 'specification', 'jan', 'packSize', 'costNet', 'priceNet']; // 空でも登録できる6つ（あとで埋める・注文は止めない）。商品名・締切（何日前）は空なら登録できない
+  const JAN_DIGITS = /^[0-9]{8,13}$/; // JAN の形（数字だけ・8〜13けた）。店内のコードも認めるときは、ここと GAS の JAN_DIGITS_ だけを直す
   const KEYS = COLUMNS.map((c) => c.key);
   const NUMBER_KEYS = COLUMNS.filter((c) => c.kind === 'number').map((c) => c.key);
   const LABEL = Object.fromEntries(COLUMNS.map((c) => [c.key, c.label]));
+  const MAX_LEAD = 30;
+
+  // ------------------------------------------------------------ 商品の欄の決まり（1か所。GAS の fieldProblem_・missingFields_ と同じ文・試験が同じかを見る）
+  const emptyValue = (v) => v === '' || v == null || (typeof v === 'string' && v.trim() === '');
+  /** 1つの欄の決まり。よければ ''。空: 商品名・締切（何日前）だけエラー。書いてあれば形を確かめる */
+  function fieldProblem(key, value) {
+    const label = LABEL[key] || key;
+    if (emptyValue(value)) {
+      if (key === 'name') return '商品名を入れてください（必ず書きます）。';
+      if (key === 'leadDays') return '締切（何日前）を入れてください（必ず書きます・0〜' + MAX_LEAD + ' の整数）。';
+      return '';
+    }
+    if (key === 'jan') return JAN_DIGITS.test(janKey(value)) ? '' : 'JAN は数字だけ・8〜13けたで入れてください（JAN の無い商品は空のままでよい）。';
+    if (key === 'manufacturer' || key === 'name' || key === 'specification') return String(value).trim().length > 120 ? label + 'は120文字までです。' : '';
+    const n = typeof value === 'number' ? value : Number(String(value).trim());
+    if (typeof value === 'boolean' || !Number.isFinite(n)) return label + 'は数で入れてください。';
+    if (key === 'leadDays') return Number.isInteger(n) && n >= 0 && n <= MAX_LEAD ? '' : '締切（何日前）は 0〜' + MAX_LEAD + ' の整数で入れてください。';
+    if (key === 'packSize') return Number.isInteger(n) && n >= 1 && n <= NUMBER_MAX ? '' : '入数は 1 以上の整数で入れてください。';
+    if (key === 'marginRate') return n >= 0 && n <= NUMBER_MAX ? '' : '値入率は 0 以上の数で入れてください。';
+    return n > 0 && n <= NUMBER_MAX ? '' : label + 'は 0 より大きい数で入れてください（9,999,999 まで）。';
+  }
+  /** 埋めていない項目（6つのうち空の欄）。注文は止めない。BY への知らせ */
+  function missingFields(rec) { return FILL_LATER.filter((k) => emptyValue(rec ? rec[k] : '')); }
+  function missingLabel(keys) { return (keys || []).map((k) => LABEL[k]).join('・'); }
   const SMALL_KANA = 'ぁぃぅぇぉっゃゅょゎゕゖ', LARGE_KANA = 'あいうえおつやゆよわかけ';
   const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
@@ -68,7 +97,8 @@
       .replace(/[\s・()[\]{}【】「」『』〈〉《》〔〕、,]/g, '');
   }
   function nameSpecKey(name, spec) { return matchKey(name) + '\u001f' + matchKey(spec); }
-  function headerKey(value) { return String(value == null ? '' : value).normalize('NFKC').replace(/\s+/g, '').toLowerCase(); }
+  /** 見出しを比べる形（全角半角・空白・「※必須」を外す） */
+  function headerKey(value) { return String(value == null ? '' : value).normalize('NFKC').replace(/※?必須|\(必須\)/g, '').replace(/\s+/g, '').toLowerCase(); }
 
   // ------------------------------------------------------------ xlsx を読む（zip → 「入力」のシート）
   function sheetError(message) { const e = new Error(message); e.userMessage = message; return e; }
@@ -230,8 +260,8 @@
       return s;
     }
     const s = janKey(cellString(cell));
-    if (!/^[0-9]*$/.test(s)) { errors.push('JANは数字だけで入れてください（いま「' + cellString(cell).trim().slice(0, 20) + '」）。'); return ''; }
-    if (s.length > 32) { errors.push('JANが長すぎます（32けたまで）。'); return ''; }
+    const problem = fieldProblem('jan', s);
+    if (problem) { errors.push(problem.replace(/。$/, '') + '（いま「' + cellString(cell).trim().slice(0, 20) + '」）。'); return ''; }
     return s;
   }
   function readNumber(cell, col, errors) {
@@ -242,7 +272,17 @@
     else if (cell.t === 'b') n = NaN;
     else { const s = String(cell.v).normalize('NFKC').replace(/[\s,¥$円%]/g, ''); n = s === '' ? NaN : Number(s); }
     if (!Number.isFinite(n)) { errors.push(col.label + 'が数ではありません（「' + cellString(cell).trim().slice(0, 20) + '」）。'); return ''; }
-    if (n < 0 || n > NUMBER_MAX) { errors.push(col.label + 'は、0 から 9,999,999 までの数で入れてください。'); return ''; }
+    const problem = fieldProblem(col.key, n);
+    if (problem) { errors.push(problem); return ''; }
+    return n;
+  }
+  /** 締切（何日前）: 0〜30 の整数。「3日前」「3日」も読む。空なら ''（行のエラーにする＝必ず書く） */
+  function readLead(cell, errors) {
+    if (isBlank(cell)) return '';
+    if (cell.t === 'e') { errors.push('締切（何日前）がエラーの値（' + cell.v + '）です。'); return ''; }
+    const n = cell.t === 'n' ? cell.v : Number(String(cell.v).normalize('NFKC').replace(/\s|日前|日/g, ''));
+    const problem = fieldProblem('leadDays', Number.isFinite(n) ? n : NaN);
+    if (problem) { errors.push(problem.replace(/。$/, '') + '（いま「' + cellString(cell).trim().slice(0, 12) + '」）。'); return ''; }
     return n;
   }
   function readAliases(cell, errors) {
@@ -272,6 +312,7 @@
       else map[col.key] = ci;
     });
     const items = [];
+    const noLeadCol = map.leadDays === undefined; // 締切の列の無い古い用紙（0.2.3 の11列）は、行ごとにエラー
     numbers.filter((rn) => rn > headerRow).forEach((rn) => {
       const cells = rows.get(rn) || [];
       if (COLUMNS.every((col) => map[col.key] === undefined || isBlank(cells[map[col.key]]))) return; // 空の行は読まない
@@ -281,9 +322,11 @@
         if (col.kind === 'text') item[col.key] = readText(cell, col, errors);
         else if (col.kind === 'jan') item[col.key] = readJan(cell, errors);
         else if (col.kind === 'number') item[col.key] = readNumber(cell, col, errors);
+        else if (col.kind === 'lead') item[col.key] = readLead(cell, errors);
         else item[col.key] = readAliases(cell, errors);
       });
-      if (!item.name && !errors.some((e) => e.startsWith('商品名'))) errors.unshift('商品名が空です。');
+      if (!item.name && !errors.some((e) => e.startsWith('商品名'))) errors.unshift(fieldProblem('name', ''));
+      if (item.leadDays === '' && !errors.some((e) => e.startsWith('締切'))) errors.push(noLeadCol ? '締切（何日前）が空です（前の用紙には、この列がありません。新しい登録用紙をダウンロードして書いてください）。' : fieldProblem('leadDays', ''));
       items.push({ row: rn, item, errors });
     });
     return { items, fileErrors, columns: COLUMNS.filter((c) => map[c.key] !== undefined).map((c) => c.label) };
@@ -302,7 +345,7 @@
   /**
    * 用紙（1つ以上）とマスターから、確かめの表を作る。
    *   files: [{ name, items, fileErrors }]・master: 画面に届いた商品マスター（使う商品だけ）
-   *   返す値: { lines: [{ file, row, at, status: 'new'|'update'|'same'|'error', item, record, target, changes: [{ key, label, before, after, computed }], computed: [欄], errors }], counts, fileErrors, total }
+   *   返す値: { lines: [{ file, row, at, status: 'new'|'update'|'same'|'error', item, record, target, changes: [{ key, label, before, after, computed }], computed: [欄], errors, missing: [埋めていない欄] }], counts, incomplete, fileErrors, total }
    */
   function plan(files, master) {
     files = files || []; master = master || [];
@@ -355,17 +398,19 @@
       const given = givenKeys(l.item);
       if (!l.target) {
         const rec = Object.assign(blankProduct(), l.item);
-        l.computed = fillComputed(rec, given); l.record = rec; l.status = 'new'; return;
+        l.computed = fillComputed(rec, given); l.record = rec; l.status = 'new'; l.missing = missingFields(rec);
+        return;
       }
       const before = l.target; const rec = {};
       KEYS.forEach((k) => { rec[k] = given[k] ? l.item[k] : (before[k] == null ? (k === 'aliases' ? [] : '') : before[k]); });
       l.computed = fillComputed(rec, given); l.record = rec;
       l.changes = KEYS.filter((k) => !sameValue(k, before[k], rec[k])).map((k) => ({ key: k, label: LABEL[k], before: before[k], after: rec[k], computed: l.computed.includes(k) }));
-      l.status = l.changes.length ? 'update' : 'same';
+      l.status = l.changes.length ? 'update' : 'same'; l.missing = missingFields(rec);
     });
     const counts = { new: 0, update: 0, same: 0, error: 0 };
-    lines.forEach((l) => { counts[l.status]++; });
-    return { lines, counts, fileErrors, total, canSave: !fileErrors.length && !counts.error && total > 0 && (counts.new + counts.update) > 0 };
+    lines.forEach((l) => { counts[l.status]++; if (!l.missing || l.status === 'error') l.missing = []; });
+    const incomplete = lines.filter((l) => l.missing.length).length; // 埋めていない項目のある行（黄色の注意・登録はできる）
+    return { lines, counts, incomplete, fileErrors, total, canSave: !fileErrors.length && !counts.error && total > 0 && (counts.new + counts.update) > 0 };
   }
 
   /** GAS へ送る行（エラーの無いときだけ使う）。空の欄は ''（＝いまの値のまま） */
@@ -395,5 +440,5 @@
     return searching ? '当たる商品はありません。' : '';
   }
 
-  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, grossOf, marginOf, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
+  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, TEMPLATE_KEYS, FILL_LATER, fieldProblem, missingFields, missingLabel, grossOf, marginOf, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
 })(typeof window !== 'undefined' ? window : globalThis);

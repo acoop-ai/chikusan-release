@@ -284,3 +284,79 @@ td.is-saving .cell-state{color:#8a5a00}td.is-saved .cell-state{color:#1d5b3a}td.
 .store-week-table td.store-cell.day-cell.is-soldout{background:#f2f3f2}
 .save-indicator.is-idle{border-color:transparent;background:transparent;color:#5f6d64;font-weight:600}
 .week-tab{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:40px;padding:5px 12px}.week-tab b{font-size:14px}.week-tab .tab-now{padding:0 6px;border-radius:8px;background:#e2f1e6}
+/* 0.2.4 在庫量（BY と倉庫がいつでも直せる）・直した人と時刻・不足・行の確定（商品ごとの締切） */
+.cap-cell{min-width:118px}.cap-cell .cap-input{width:84px}
+.cap-who{display:block;margin-top:2px;color:#5f6d64;font-size:10px;white-space:nowrap}
+td.cap-short{color:#9c3932;font-weight:700;white-space:nowrap}
+.cell-lock{display:block;width:fit-content;margin:2px auto 0;padding:0 5px;border:1px solid #9fb3a5;border-radius:7px;color:#2f4a38;font-size:10px;font-weight:700}
+.cell-until{display:block;margin-top:2px;color:#7a5410;font-size:10px;white-space:nowrap}
+.store-week-table td.store-cell.day-cell.is-locked{background:#f1f4f1}
+.row-status.is-mixed{border-style:dotted;color:#4f5f55}
+.row-status.is-lead,.row-status.is-month{color:#2f4a38}
+/* 0.2.4 締切が未設定・BY の知らせ（締切が未設定＝赤・埋めていない項目＝黄色。色だけにしない＝見出しの文字で分ける） */
+.lead-warning{display:grid;gap:8px;margin:0 0 12px}
+.product-notice{padding:10px 14px;border:1px solid;border-radius:9px}
+.product-notice.is-lead{border-color:#efcfcb;background:#fff5f4}
+.product-notice.is-fill{border-color:#ecd9b4;background:#fffaf0}
+.product-notice-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 7px;font-size:12px}
+.product-notice.is-lead .product-notice-head strong{color:#9c3932}
+.product-notice.is-fill .product-notice-head strong{color:#7a5410}
+.product-notice-head span{color:#4f5f55}
+.product-notice-list{display:flex;flex-wrap:wrap;gap:6px}
+.lead-chip{display:inline-flex;flex-direction:column;align-items:flex-start;min-height:34px;padding:5px 10px;border:1px solid #d6ddd8;border-radius:8px;background:#fff;color:#22352a;font:inherit;font-size:12px;font-weight:700;text-align:left;cursor:pointer}
+.lead-chip:hover{border-color:#8cb79a}
+.lead-chip small{color:#7a5410;font-size:10px;font-weight:600}
+.product-notice-more{align-self:center;color:#5f6d64;font-size:11px}
+.lead-missing,.fill-missing{margin:0 0 8px;padding:8px 11px;border-radius:8px;font-size:12px;line-height:1.6}
+.lead-missing{border:1px solid #efcfcb;background:#fff5f4;color:#9c3932}
+.fill-missing{border:1px solid #ecd9b4;background:#fffaf0;color:#7a5410}
+.nolead-mark,.fill-mark{display:inline-block;width:fit-content;margin-top:4px;padding:0 6px;border-radius:7px;font-size:10px;font-weight:700}
+.nolead-mark{border:1px solid #efcfcb;background:#fff5f4;color:#9c3932}
+.fill-mark{border:1px solid #ecd9b4;background:#fffaf0;color:#7a5410}
+.nolead-note{display:block;margin-top:3px;color:#9c3932!important;font-weight:700}
+.is-nolead-row td.product-cell{background:#fffafa}
+.cell-lock.is-nolead,.row-status.is-nolead{border-color:#e2b4ae;color:#9c3932}
+.edited-by{display:block;margin-top:2px;color:#4b3a8a;font-size:10px;font-weight:700;white-space:nowrap}
+/* 残数の時点・更新・変わった印 */
+.summary-item.is-remain b{font-variant-numeric:tabular-nums}
+.summary-item.is-remain.is-loading b:after{content:"";display:inline-block;width:9px;height:9px;margin-left:6px;border:2px solid #cfe3d5;border-top-color:var(--green);border-radius:50%;vertical-align:-1px;animation:spin .9s linear infinite}
+.refresh-button{min-height:30px;padding:4px 12px}
+.cap-hint.is-changed{color:#1d5b3a;font-weight:700}
+.remain-changed{margin-left:5px;padding:0 5px;border-radius:6px;background:#e2f1e6;color:#1d5b3a;font-size:10px}
+/* 商品を追加・直す: 欄ごとの理由（赤＝直さないと保存できない・黄色＝空です。色と文字の両方） */
+.must-tag{margin-left:6px;color:#8a3b00;font-size:11px;font-weight:700}
+.field-note{display:block;min-height:0;margin:-6px 0 4px;font-size:11px;line-height:1.5}
+.field-note:empty{display:none}
+.field-note.is-error{color:#b42318;font-weight:700}
+.field-note.is-missing{color:#7a5410}
+.modal-form input.is-error{border-color:#b42318!important;background:#fff5f4}
+.modal-form input.is-missing{border-color:#d9a441!important;background:#fffcf3}
+.editor-rule{margin:0 0 4px}
+.form-grid>div{display:flex;flex-direction:column}
+/* 登録用紙の確かめの表: 空の項目あり（黄色の注意・エラーではない） */
+.sheet-missing{margin:6px 0 0;padding:4px 8px;border-left:3px solid #d9a441;background:#fffaf0;color:#7a5410;font-size:11px;line-height:1.5}
+/* 待ちの印（フリーズに見せない）: 押した所に回る印と文字・押せない間は薄く */
+.spinner{display:inline-block;flex:0 0 auto;width:12px;height:12px;margin-right:6px;border:2px solid #cfe3d5;border-top-color:var(--green);border-radius:50%;vertical-align:-2px;animation:spin .9s linear infinite}
+.button-primary .spinner{border-color:#ffffff66;border-top-color:#fff}
+.button.is-busy{cursor:progress;opacity:.75}
+.loading-line{display:flex;align-items:center}
+#guide-status.is-loading{display:flex;align-items:center}
+.notice .notice-retry{margin-left:auto;align-self:center}
+.toast .toast-retry{margin-left:10px;min-height:28px;padding:3px 10px}
+.skeleton-note{display:flex;align-items:center;margin:0 0 8px;color:#4f5f55;font-size:12px}
+.skeleton-card{padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.skeleton-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;padding:9px 0;border-bottom:1px solid #f0f2f0}
+.skeleton-row:last-child{border-bottom:0}
+.skeleton-row i{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,#eef1ee 0,#f7f9f7 50%,#eef1ee 100%);background-size:200% 100%;animation:skeleton 1.2s ease-in-out infinite}
+@keyframes skeleton{from{background-position:100% 0}to{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.spinner,.skeleton-row i,.progress-overlay i,.summary-item.is-remain.is-loading b:after{animation-duration:2.4s}}
+/* 先の月: 用意していない月・商品の無い月（BY）。押す所を表の場所に出す */
+.setup-card{padding:20px 22px;border:1px dashed #b9cdbf;border-radius:10px;background:#fff}
+.setup-card strong{display:block;font-size:15px}
+.setup-card p{margin:6px 0 12px;color:#4f5f55;font-size:12px;line-height:1.7}
+.setup-actions{display:flex;flex-wrap:wrap;gap:8px}
+@media print{.lead-warning,.product-notice,.refresh-button,.setup-card,.skeleton-card,.skeleton-note{display:none!important}}
+/* 2列の欄（原価・売価）の下の理由は、欄に重ねない */
+.form-grid>div .field-note{margin:2px 0 6px}
+/* 週のタブ: 押した直後に印（表を描く前に、押したことが分かる） */
+.week-tab.is-loading b:after{content:"";display:inline-block;width:9px;height:9px;margin-left:6px;border:2px solid #cfe3d5;border-top-color:var(--green);border-radius:50%;vertical-align:-1px;animation:spin .9s linear infinite}
