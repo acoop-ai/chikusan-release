@@ -1,8 +1,8 @@
 (() => {
   'use strict';
-  // 畜産発注の画面（版 livestock-order-api-0.2.1）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // 畜産発注の画面（版 livestock-order-api-0.2.2）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
   // 信頼境界: GAS から届く文字（商品名・店名など）は、人が打った文字。画面に出すときは textContent か esc() を通す。
-  const APP_VERSION = 'livestock-order-api-0.2.1';
+  const APP_VERSION = 'livestock-order-api-0.2.2';
   const CONFIG = window.APP_CONFIG || {};
   const GAS_URL = String(CONFIG.gasUrl || '');
   const GAS_URL_OK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GAS_URL);
