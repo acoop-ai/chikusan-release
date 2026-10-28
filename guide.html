@@ -15,16 +15,23 @@
 </head>
 <body class="guide-page">
   <header class="topbar">
-    <a class="brand" href="index.html" aria-label="発注画面へ戻る"><span class="brand-mark" aria-hidden="true">畜</span><span><strong>畜産発注</strong><small>利用ガイド</small></span></a>
+    <a class="brand" href="index.html" aria-label="発注画面へ戻る"><span class="brand-mark" aria-hidden="true">畜</span><span><strong>畜産発注</strong></span></a>
     <div class="topbar-center"><span>操作で迷ったとき</span></div>
     <div class="account-area"><a class="guide-button guide-return" href="index.html"><span aria-hidden="true">←</span>発注画面へ戻る</a></div>
   </header>
   <main class="guide-main">
-    <div id="guide-content" class="guide-sections" aria-live="polite">
-      <section class="week-card guide-placeholder" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line short"></div></section>
-    </div>
     <p id="guide-status" class="guide-intro" role="status">ログインすると、利用ガイドを表示します。<a href="index.html">発注画面でログインする</a></p>
-    <p class="guide-support"><a href="index.html">発注画面へ戻る</a>　<span class="app-version">版 livestock-order-api-0.2.2</span></p>
+    <div id="guide-root" hidden>
+      <section id="guide-flow" class="guide-flow" aria-label="発注の流れ" hidden></section>
+      <div id="guide-tabs" class="guide-tabs" role="tablist" aria-label="役割で選ぶ"></div>
+      <div class="guide-layout">
+        <nav id="guide-toc" class="guide-nav" aria-label="目次"></nav>
+        <div id="guide-content" class="guide-sections" aria-live="polite">
+          <section class="week-card guide-placeholder" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line short"></div></section>
+        </div>
+      </div>
+    </div>
+    <p class="guide-support"><a href="index.html">発注画面へ戻る</a>　<span class="app-version">版 livestock-order-api-0.2.3</span></p>
   </main>
 </body>
 </html>

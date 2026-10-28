@@ -4,6 +4,8 @@ gh_token*
 .env.*
 *.token
 *.xlsx
+# 例外は商品マスターの登録用紙だけ（見出しと【見本】の記入例だけ・実データなし。tools/make_product_template.py が作る）
+!product-template.xlsx
 *.xls
 *.csv
 *.tsv

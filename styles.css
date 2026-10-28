@@ -75,3 +75,212 @@
 .store-cell.is-empty:not(.is-own){background:#eceeec}
 .outside-month-row .store-cell.is-empty:not(.is-own){background:#f4f5f4}
 .week-card{scroll-margin-top:72px}
+/* 0.2.3: 商品マスターの登録用紙（ダウンロード・アップロード・確かめの表）・似た商品の候補・税込と値入率の自動の印 */
+.product-modal{width:min(680px,100%)}.upload-modal{width:min(1000px,100%)}
+a.button{text-decoration:none}
+.product-sheet-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:9px 11px;border:1px dashed #c9dacd;border-radius:8px;background:#f8fbf8}
+.product-sheet-actions>span{display:flex;align-items:center;gap:6px;margin-right:auto;color:#53645a;font-size:11px;font-weight:600}
+.product-manager-empty{margin:6px 0;padding:16px 14px;border:1px dashed #cdd8cf;border-radius:8px;background:#fff;color:var(--ink);font-size:12px;line-height:1.7;text-align:center}
+.sheet-view{display:grid;gap:12px;padding:16px 20px 20px}
+.sheet-files{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px}.sheet-files ul{display:grid;flex:1;gap:5px;min-width:240px;margin:0;padding:0;list-style:none}
+.sheet-files li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 6px 6px 11px;border:1px solid var(--line);border-radius:7px;background:#fff}
+.sheet-files li span{display:flex;align-items:baseline;gap:9px;min-width:0}.sheet-files li strong{font-size:12px;overflow-wrap:anywhere}.sheet-files li small{color:var(--muted);font-size:11px;white-space:nowrap}
+.sheet-files .button-quiet{min-height:28px;padding:4px 10px}
+.sheet-file-errors{padding:11px 14px;border:1px solid #f0d8d5;border-radius:9px;background:#fff5f4;color:#7d2f29;font-size:12px;line-height:1.7}.sheet-file-errors ul{margin:4px 0 0;padding-left:20px}
+.sheet-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.sheet-count{padding:9px 12px;border:1px solid var(--line);border-left-width:4px;border-radius:8px;background:#fff}.sheet-count span{display:block;color:var(--muted);font-size:11px}.sheet-count b{display:block;margin-top:2px;font-size:20px}
+.sheet-count.is-new{border-left-color:#2f7a52}.sheet-count.is-update{border-left-color:#c58a1e}.sheet-count.is-same{border-left-color:#b9c3bc}.sheet-count.is-error{border-left-color:var(--red)}
+.sheet-message{margin:0;padding:10px 13px;border:1px solid #cfe3d5;border-left:4px solid #3f8a5f;border-radius:8px;background:#f4faf5;color:#2b4434;font-size:12px;line-height:1.7}
+.sheet-message.is-error{border-color:#f0d8d5;border-left-color:var(--red);background:#fff5f4;color:#7d2f29;font-weight:600}
+.sheet-table-wrap{max-height:48vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.sheet-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.sheet-table th{position:sticky;top:0;z-index:1;padding:7px 9px;border-bottom:1px solid var(--line);background:#f6f8f6;color:#66736a;font-size:11px;text-align:left;white-space:nowrap}
+.sheet-table td{padding:8px 9px;border-bottom:1px solid #edf0ed;vertical-align:top}
+.sheet-at{white-space:nowrap;color:#5b6b61}.sheet-product strong,.sheet-product small{display:block}.sheet-product small{margin-top:2px;color:var(--muted);font-size:11px}
+.sheet-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap}
+.sheet-badge.is-new{background:#e2f1e6;color:#1d5b3a}.sheet-badge.is-update{background:#fff3dc;color:#7a5410}.sheet-badge.is-same{background:#eef1ee;color:#68766d}.sheet-badge.is-error{background:#fde8e5;color:#9c3932}
+.sheet-line.is-error td{background:#fffafa}
+.sheet-reasons,.sheet-changes{margin:0;padding-left:16px;line-height:1.6}.sheet-reasons{color:#8d322b}
+.sheet-changes b{margin-right:4px;color:#5b6b61;font-weight:600}.sheet-changes small{margin-left:3px;color:#3f7a56}
+.sheet-same summary{cursor:pointer;color:#5d7163;font-size:12px}.sheet-same .sheet-table-wrap{margin-top:7px}
+.sheet-add-month{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:12px}
+.sheet-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+.similar-products{display:grid;gap:5px;margin-top:-4px;padding:9px 10px;border:1px solid #ecd9b4;border-radius:8px;background:#fffaf0}
+.similar-head{margin:0 0 2px;color:#5b4210;font-size:11px;line-height:1.6}
+.similar-item{display:block;width:100%;padding:7px 9px;border:1px solid #ecd9b4;border-radius:6px;background:#fff;text-align:left;cursor:pointer;font:inherit}
+.similar-item:hover,.similar-item:focus{border-color:#c58a1e;background:#fff6e2}.similar-item strong,.similar-item small{display:block}.similar-item strong{font-size:12px;color:var(--ink)}.similar-item small{margin-top:2px;color:var(--muted);font-size:10px}
+.modal-form input.is-auto{background:#f2f8f4;color:#2f6a48}
+.calc-note{margin:-2px 0 0;color:#5b6b61}
+.guide-detail h3{margin:14px 0 0;color:var(--ink);font-size:12px}
+@media(max-width:680px){.sheet-counts{grid-template-columns:1fr 1fr}.product-sheet-actions>span{width:100%}.sheet-table{font-size:11px}}
+/* 0.2.3: 見出しを小さく（PO「ヘッダも無駄に冗長に広い」）・表を画面の上の方から・店は自店の1列・行の確定と未確定の印・印刷の上の1行と凡例 */
+:root{--fixed-header:50px}
+.topbar{padding:0 18px}.brand{gap:9px}.brand-mark{width:30px;height:30px;border-radius:9px;font-size:15px}.brand strong{font-size:14px}
+.account-label{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.main-content{padding-top:12px}
+.page-heading{align-items:center;margin-bottom:8px;gap:12px}
+.page-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;min-width:0}
+.page-heading h1{margin:0;font-size:18px}.page-subtitle{font-size:11px}
+.period-control{flex-wrap:wrap;gap:8px}.period-control .button{min-height:34px;padding:6px 11px}.period-control select{padding:7px 28px 7px 10px}
+.summary-line{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 8px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13px}
+.summary-item{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:4px 12px;border-left:1px solid var(--line)}.summary-item:first-child{border-left:0}
+.summary-item small{color:var(--muted);font-size:11px}.summary-item b{color:var(--ink);font-weight:700}
+.summary-item.is-open b{color:#1d5b3a}.summary-item.is-closed b,.summary-item.is-wait b{color:#7a5410}
+.role-notice{margin:0 0 8px;padding:7px 12px;font-size:12px;line-height:1.6}
+.toolbar{margin-bottom:8px;padding:8px 4px}
+.week-heading{padding:8px 12px}
+.unit-note{margin-left:4px;padding:1px 7px;border:1px solid #cfe3d5;border-radius:9px;background:#f4faf5;color:#2b4434;font-size:11px;font-weight:600}
+.order-table.is-single{width:auto}.order-table.is-single .store-head,.order-table.is-single .store-cell{min-width:96px}
+.row-status{display:block;width:fit-content;margin-top:3px;padding:0 5px;border:1px solid #c9d6cc;border-radius:7px;background:#fff;color:#46574b;font-size:10px;font-weight:600;line-height:1.5}
+.row-status.is-open,.row-status.is-nodeadline{border-style:dashed;border-color:#d9b979;color:#7a5410}
+.status-legend{margin:0;padding:6px 12px 8px;border-top:1px solid #edf0ed;color:#5f6d64;font-size:11px;line-height:1.6}
+.print-only{display:none}
+@media(max-width:680px){
+  :root{--fixed-header:48px}
+  .topbar{padding:0 12px}.brand-mark{width:28px;height:28px}
+  .main-content{padding-top:10px}
+  .page-heading{flex-direction:row;flex-wrap:wrap;align-items:center;margin-bottom:6px}.page-heading h1{font-size:16px}
+  .summary-item{min-height:30px;padding:3px 9px;font-size:12px}
+  .status-legend{font-size:10px}
+}
+@media print{
+  .print-only{display:block!important;margin:0 0 6px;color:#000;font-size:11px;font-weight:700}
+  .summary-line,#excel-button,.unit-note{display:none!important}
+  .row-status{border:1px solid #000!important;color:#000!important}
+  tr.status-open td.col-date,tr.status-nodeadline td.col-date{background:repeating-linear-gradient(45deg,#fff 0 3px,#cfcfcf 3px 4px)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .status-legend{display:block;color:#000;font-size:9px}
+}
+/* 0.2.3 ご利用ガイド（役割のタブ・全体の流れの図・目次と本文の連動・画面の略図）。手順の番号と略図の丸は同じ色＝同じ番号を目でつなぐ */
+.guide-page .guide-main{max-width:1180px;padding:16px 24px 60px}
+.guide-flow{margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.guide-flow-title{margin:0 0 8px;color:var(--ink);font-size:15px}
+.guide-flow-list{display:flex;align-items:stretch;gap:8px;margin:0;padding:0;list-style:none}
+.guide-flow-step{position:relative;display:grid;flex:1;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:#fbfcfb;font-size:14px}
+.guide-flow-step strong{color:var(--green);font-size:15px}.guide-flow-what{color:var(--ink);font-weight:700}.guide-flow-step small{color:#4f5f55;font-size:13px}
+.guide-flow-step.is-you{border:2px solid #3f8a5f;background:#f4faf5}
+.guide-flow-you{position:absolute;top:-10px;right:10px;padding:0 8px;border-radius:9px;background:#3f8a5f;color:#fff;font-size:12px;font-weight:700}
+.guide-flow-arrow{display:grid;place-items:center;color:#5f6d64;font-size:22px;font-weight:700}
+.guide-tabs{display:flex;gap:6px;margin:0 0 12px;border-bottom:2px solid var(--line)}
+.guide-tab{position:relative;display:flex;align-items:baseline;gap:8px;min-height:44px;margin-bottom:-2px;padding:8px 16px;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;background:#eef2ef;color:#4c5c52;font:inherit;cursor:pointer}
+.guide-tab strong{font-size:15px}.guide-tab span{font-size:14px}
+.guide-tab[aria-selected="true"]{border-bottom:2px solid #fff;background:#fff;color:var(--green)}
+.guide-tab-you{padding:0 6px;border-radius:8px;background:#e2f1e6;color:#1d5b3a;font-size:12px;font-weight:700}
+.guide-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
+.guide-nav{position:sticky;top:0;display:grid;gap:2px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.guide-toc-title{margin:0 0 4px;color:var(--muted);font-size:12px;font-weight:700}
+.guide-toc-link{display:block;padding:8px 10px;border-radius:7px;color:#3e4f45;font-size:14px;line-height:1.4;text-decoration:none}
+.guide-toc-link:hover{background:#f3f7f4}
+.guide-toc-link.is-current{background:var(--green-soft);color:var(--green);font-weight:700;box-shadow:inset 3px 0 0 #3f8a5f}
+.guide-page .guide-sections{display:grid;gap:12px}
+.guide-lead{margin:0;padding:10px 14px;border-left:4px solid #3f8a5f;border-radius:8px;background:#f4faf5;color:#22382a;font-size:16px;line-height:1.7}
+.guide-section-card{padding:14px 16px 16px;border:1px solid var(--line);border-radius:10px;background:#fff;scroll-margin-top:12px;transition:box-shadow .3s}
+.guide-section-card.is-landed{box-shadow:0 0 0 4px #f3dcae}
+.guide-h{margin:0 0 10px;color:var(--ink);font-size:17px}
+.guide-body{display:grid;gap:12px;color:#2c3c32;font-size:16px;line-height:1.75}
+.guide-steps{margin:0;padding:0;list-style:none;counter-reset:step}
+.guide-steps li{position:relative;margin:0 0 6px;padding-left:36px;counter-increment:step}
+.guide-steps li::before{content:counter(step);position:absolute;top:2px;left:0;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#c2410c;color:#fff;font-size:14px;font-weight:700;line-height:1}
+.guide-sketches{display:flex;flex-wrap:wrap;gap:14px}
+.sketch{flex:1 1 320px;min-width:0;max-width:540px;margin:0;padding:12px 10px 8px;border:1px solid #d6e0d8;border-radius:10px;background:#f4f7f5}
+.sketch figcaption{margin-top:6px;color:#4f5f55;font-size:13px;text-align:center}
+.sk-row{display:flex;gap:5px;margin-bottom:6px}
+.sk-row.is-bar{padding:4px;border:1px solid #e1e8e2;border-radius:6px;background:#fff}
+.sk-row.is-tabs .sk-cell{border-radius:0 0 6px 6px}
+.sk-cell{position:relative;display:flex;align-items:center;justify-content:center;min-height:30px;padding:4px 8px;border:1px solid #c3d1c6;border-radius:6px;background:#fff;color:#3e4f45;font-size:13px;line-height:1.3;text-align:center}
+.sk-cell.is-grow{flex:1}.sk-cell.is-tall{min-height:64px}
+.sk-cell.is-plain{border-color:transparent;background:transparent;justify-content:flex-start;font-weight:700}
+.sk-cell.is-primary{border-color:#2f6b4a;background:#2f6b4a;color:#fff}
+.sk-cell.is-check .sk-text::before{content:"☐ "}
+.sk-cell.is-note{border-style:dashed;border-color:#d9b979;background:#fffaf0;color:#5b4210}
+.sk-cell.is-marked{border:2px solid #c2410c;box-shadow:0 0 0 2px #fde7d9}
+.sk-mark{position:absolute;top:-11px;right:-9px;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#c2410c;color:#fff;font-size:13px;font-weight:700}
+.guide-success{display:flex;flex-wrap:wrap;gap:4px 10px;margin:0;padding:10px 12px;border:1px solid #cfe3d5;border-radius:8px;background:#f4faf5;color:#1f3d2b}
+.guide-success b{color:#1d5b3a}
+.guide-tips{margin:0;padding-left:20px;color:#3e4f45;font-size:15px}
+.guide-trouble{display:grid;gap:4px;margin:0}
+.guide-trouble dt{margin-top:8px;color:var(--ink);font-weight:700}
+.guide-trouble dd{margin:0 0 0 1.2em;color:#2c3c32}
+.guide-trouble dd::before{content:"→ ";color:#2f7a52;font-weight:700}
+@media(max-width:760px){
+  .guide-page .guide-main{padding:10px 12px 50px}
+  .guide-flow-list{flex-direction:column}.guide-flow-arrow{height:18px;transform:rotate(90deg)}
+  .guide-tabs{overflow-x:auto}.guide-tab{flex:1 0 auto;flex-direction:column;align-items:flex-start;gap:0;padding:6px 10px}
+  .guide-layout{grid-template-columns:1fr;gap:10px}
+  .guide-nav{position:sticky;top:0;z-index:3;display:flex;gap:6px;overflow-x:auto;padding:6px;border-radius:9px}
+  .guide-toc-title{display:none}.guide-toc-link{flex:0 0 auto;padding:6px 10px;border:1px solid var(--line);font-size:13px;white-space:nowrap}
+  .guide-body{font-size:15px}.sketch{flex-basis:100%}.sk-cell{padding:3px 5px;font-size:12px}
+}
+@media print{.guide-nav,.guide-tabs,.guide-support{display:none!important}.guide-layout{display:block}}
+@media(max-width:760px){
+  .guide-flow{padding:8px 10px}.guide-flow-title{margin-bottom:6px;font-size:14px}
+  .guide-flow-list{flex-direction:row;gap:4px}.guide-flow-arrow{height:auto;transform:none;font-size:16px}
+  .guide-flow-step{padding:8px 7px;font-size:12px}.guide-flow-step strong{font-size:13px}.guide-flow-step small{display:none}
+  .guide-tabs{overflow:visible}.guide-tab{flex:1 1 0;min-width:0;padding:6px 8px}.guide-tab strong{font-size:14px}.guide-tab span{font-size:12px}
+}
+@media(max-width:680px){.page-title{display:none}}
+.setting-card{margin-bottom:8px;padding:6px 12px}.setting-card strong{font-size:12px}
+.sk-row{flex-wrap:wrap}.sk-cell{white-space:nowrap}.sk-cell.is-grow{flex:1 1 auto;min-width:88px}.sk-cell.is-tall,.sk-cell.is-note{white-space:normal}.sk-cell.is-plain.is-grow{min-width:0}
+/* 0.2.3 週のタブ（PO 2026-10-28「何週目の注文かはタブで」）・店は横に7日・BY と倉庫は日ごとの帯 */
+.week-tabs{display:flex;gap:6px;overflow-x:auto;margin:0 0 8px;padding:2px 2px 4px}
+.week-tab{display:grid;flex:0 0 auto;gap:1px;min-width:112px;min-height:44px;padding:6px 12px;border:1px solid var(--line);border-radius:9px;background:#fff;color:#46574b;font:inherit;text-align:left;cursor:pointer}
+.week-tab b{font-size:13px}.week-tab span{color:var(--muted);font-size:12px}
+.week-tab.is-active{border:2px solid #2f7a52;background:#eaf3ed;color:#1d5b3a}.week-tab.is-active span{color:#2b4434}
+.week-tab .tab-now{color:#1d5b3a;font-size:11px;font-weight:700}
+.week-tab .tab-pending{color:#8a5a00;font-size:11px;font-style:normal;font-weight:700}
+.week-tab.has-pending{border-color:#d29a2e}
+.store-week-table{width:auto}
+.store-week-table th.sd-product,.store-week-table td.sd-product{position:sticky;left:0;z-index:2;min-width:220px;max-width:280px;background:#fff;text-align:left;white-space:normal;box-shadow:inset -1px 0 0 #dfe7e0}
+.store-week-table thead th.sd-product{z-index:4;background:#f6f8f6}
+.sd-maker{display:block;color:#6f7d74;font-size:10px}
+.day-head{min-width:78px;line-height:1.35;vertical-align:top}
+.day-head .dh-date{display:block;color:var(--ink);font-size:14px;font-weight:700}.day-head .dh-wd{display:block;font-size:12px;font-weight:700}
+.day-head.is-sat .dh-wd,.day-head.is-sat .dh-date{color:#1d4ed8}.day-head.is-sun .dh-wd,.day-head.is-sun .dh-date{color:#b91c1c}
+.order-table thead th.day-head.is-today{background:#fff1cc;box-shadow:inset 0 3px 0 #d29a2e}
+.dh-today{display:inline-block;margin:2px 0;padding:0 6px;border-radius:8px;background:#b7791f;color:#fff;font-size:10px;font-weight:700}
+.order-table thead th.day-head.is-outside{background:#eceeec;color:#7f8a82}.day-head.is-outside .dh-date,.day-head.is-outside .dh-wd{color:#8a948d}
+.dh-out{display:block;color:#7f8a82;font-size:10px}
+.day-head .row-status{margin:2px auto 0}
+.store-week-table td.day-cell{min-width:78px;border-left:1px solid #e6ece7}
+.store-week-table td.day-cell input{width:62px;height:38px;font-size:15px}
+.store-week-table td.day-cell.is-today{background:#fffaf0}
+.store-week-table td.day-cell.is-outside{background:#eceeec;color:#9aa49d}
+.store-week-table td.day-cell.is-soldout{background:#f2f3f2}.store-week-table td.day-cell .sold-out{display:block;font-size:10px}
+.store-week-table .sd-total{min-width:70px;font-weight:700}
+.has-day-bands tbody.day-group{border-top:3px solid #5f7d68}
+.day-band th{position:sticky;top:var(--thead-h,34px);z-index:3;padding:6px 10px;border-top:3px solid #5f7d68;background:#e3ede6;color:#173d27;font-size:13px;font-weight:700;text-align:left!important}
+.day-band th.is-sat{color:#1d4ed8}.day-band th.is-sun{color:#b91c1c}
+.day-band th.is-today{border-top-color:#d29a2e;background:#fff1cc}
+.day-band-label{position:sticky;left:8px}
+.day-group.is-outside .day-band th{border-top-color:#b8c2ba;background:#eef0ee;color:#6f7a72}
+.day-group.is-alt td.col-date,.day-group.is-alt td.col-maker,.day-group.is-alt td.col-product{background:#f3f8f4}
+@media(max-width:680px){
+  .store-week-table th.sd-product,.store-week-table td.sd-product{min-width:132px;max-width:150px}
+  .store-week-table td.day-cell,.day-head{min-width:66px}.store-week-table td.day-cell input{width:54px}
+  .week-tab{min-width:96px;padding:5px 9px}
+}
+@media print{
+  body.print-all-weeks #order-content{display:none!important}
+  #print-all.print-only{font-weight:400;font-size:inherit}
+  .week-tabs{display:none!important}
+  .day-band th{position:static;background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+/* 0.2.3 自動保存（全 GAS アプリの標準＝原則5）: 右上の保存の印・欄ごとの 保存中／✓／⚠ と理由（色だけにしない＝文字の印） */
+.save-indicator{display:inline-flex;align-items:center;min-height:34px;padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#4f5f55;font-size:12px;font-weight:700;white-space:nowrap}
+.save-indicator.is-saving{border-color:#ecd9b4;background:#fffaf0;color:#7a5410}
+.save-indicator.is-saved{border-color:#cfe3d5;background:#f4faf5;color:#1d5b3a}
+.save-indicator.is-error{max-width:340px;border-color:#efcfcb;background:#fff5f4;color:#9c3932;white-space:normal}
+td.is-saving input{border-color:#d29a2e!important}
+td.is-saved input{border-color:#3f8a5f!important}
+td.is-error input{border:2px solid #b42318!important;background:#fff5f4!important}
+.cell-state{display:block;margin-top:2px;font-size:10px;font-weight:700;line-height:1.2}
+td.is-saving .cell-state{color:#8a5a00}td.is-saved .cell-state{color:#1d5b3a}td.is-error .cell-state{color:#b42318}
+.cell-reason{display:block;max-width:124px;margin:2px auto 0;color:#9c3932;font-size:10px;line-height:1.35;white-space:normal}
+.week-tab.has-error{border-color:#b42318}.week-tab.has-error .tab-pending{color:#b42318}
+@media print{.save-indicator,.cell-state,.cell-reason{display:none!important}}
+/* 店の7日の表: 自店の1列ぶんの緑の縦線は使わない（日ごとに引くと重い）。月の中の日は白・今日は薄い黄・月の外は灰色。保存の印は、何もしていないときは文字だけ（押せる物に見せない） */
+.store-week-table td.store-cell.is-own,.store-week-table td.store-cell.is-own.is-empty{box-shadow:none;background:#fff}
+.store-week-table td.store-cell.day-cell.is-today{background:#fffaf0}
+.store-week-table td.store-cell.day-cell.is-outside{background:#eceeec;color:#9aa49d}
+.store-week-table td.store-cell.day-cell.is-soldout{background:#f2f3f2}
+.save-indicator.is-idle{border-color:transparent;background:transparent;color:#5f6d64;font-weight:600}
+.week-tab{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:40px;padding:5px 12px}.week-tab b{font-size:14px}.week-tab .tab-now{padding:0 6px;border-radius:8px;background:#e2f1e6}

@@ -13,6 +13,8 @@
   <script src="login.js" defer></script>
   <script src="search-norm.js" defer></script>
   <script src="search-words.js" defer></script>
+  <script src="product-sheet.js" defer></script>
+  <script src="order-book.js" defer></script>
   <script src="app.js" defer></script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
@@ -20,7 +22,7 @@
   <header class="topbar">
     <a class="brand" href="#main" aria-label="畜産発注システム ホーム">
       <span class="brand-mark" aria-hidden="true">畜</span>
-      <span><strong>畜産発注</strong><small>店舗・本部・倉庫</small></span>
+      <span><strong>畜産発注</strong></span>
     </a>
     <div class="topbar-center"><span class="live-dot"></span><span id="status-label">接続を準備しています</span></div>
     <div class="account-area">
@@ -36,18 +38,12 @@
       <nav>
         <a class="nav-link is-current" href="#main"><span class="nav-icon" aria-hidden="true">▦</span>発注一覧</a>
       </nav>
-      <section class="side-note" id="deadline-note" hidden>
-        <span class="side-note-icon" aria-hidden="true">✓</span>
-        <strong>締切 <a class="help-icon" href="guide.html#deadline" title="締切と注文の確定の説明" aria-label="締切と注文の確定の説明を開く">?</a></strong>
-        <p id="deadline-sidebar">ログインすると、対象月の締切が出ます。</p>
-      </section>
       <div class="sidebar-footer">社内専用システム</div>
     </aside>
 
     <main id="main" class="main-content">
       <section class="page-heading">
-        <div>
-          <div class="eyebrow">ORDER MANAGEMENT</div>
+        <div class="page-title">
           <h1>畜産 発注一覧</h1>
           <p class="page-subtitle">店舗の注文を、そのまま倉庫へ届けます。</p>
         </div>
@@ -55,6 +51,7 @@
           <label for="month-select">対象月 <a class="help-icon" href="guide.html#month" title="対象月の切り替えについて" aria-label="対象月の説明を開く">?</a></label>
           <select id="month-select" aria-label="対象月"></select>
           <button id="print-button" class="button button-secondary" type="button">印刷</button>
+          <button id="excel-button" class="button button-secondary" type="button" hidden>Excel でダウンロード</button>
         </div>
       </section>
 
@@ -76,7 +73,8 @@
       </section>
 
       <section id="workspace" hidden>
-        <div class="summary-strip" id="summary-strip"></div>
+        <div id="print-head" class="print-only" aria-hidden="true"></div>
+        <div class="summary-line" id="summary-strip"></div>
         <p id="role-notice" class="role-notice" hidden></p>
         <section class="toolbar" aria-label="一覧の操作">
           <div class="view-tabs" role="tablist" aria-label="表示の切り替え">
@@ -88,9 +86,10 @@
         </section>
         <div id="warehouse-cap-control" class="setting-card" hidden></div>
         <div id="order-content" class="order-content" aria-live="polite"></div>
+        <div id="print-all" class="print-only" aria-hidden="true"></div>
       </section>
 
-      <footer class="page-footer"><span>畜産 発注管理</span><span id="app-version" class="app-version">版 livestock-order-api-0.2.2</span></footer>
+      <footer class="page-footer"><span>畜産 発注管理</span><span id="app-version" class="app-version">版 livestock-order-api-0.2.3</span></footer>
     </main>
   </div>
   <div id="progress" class="progress-overlay" role="status" aria-live="polite" hidden><div><i aria-hidden="true"></i><span>読み込んでいます…</span></div></div>
