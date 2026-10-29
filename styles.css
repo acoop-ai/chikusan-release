@@ -147,7 +147,7 @@ a.button{text-decoration:none}
   .print-only{display:block!important;margin:0 0 6px;color:#000;font-size:11px;font-weight:700}
   .summary-line,#excel-button,.unit-note{display:none!important}
   .row-status{border:1px solid #000!important;color:#000!important}
-  tr.status-open td.col-date,tr.status-nodeadline td.col-date{background:repeating-linear-gradient(45deg,#fff 0 3px,#cfcfcf 3px 4px)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  tr.status-open td.col-date,tr.status-nodeadline td.col-date,tr.status-aggwait td.col-date,tr.status-aggsold td.col-date,tr.status-nostock td.col-date{background:repeating-linear-gradient(45deg,#fff 0 3px,#cfcfcf 3px 4px)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .status-legend{display:block;color:#000;font-size:9px}
 }
 /* 0.2.3 ご利用ガイド（役割のタブ・全体の流れの図・目次と本文の連動・画面の略図）。手順の番号と略図の丸は同じ色＝同じ番号を目でつなぐ */
@@ -284,7 +284,7 @@ td.is-saving .cell-state{color:#8a5a00}td.is-saved .cell-state{color:#1d5b3a}td.
 .store-week-table td.store-cell.day-cell.is-soldout{background:#f2f3f2}
 .save-indicator.is-idle{border-color:transparent;background:transparent;color:#5f6d64;font-weight:600}
 .week-tab{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:40px;padding:5px 12px}.week-tab b{font-size:14px}.week-tab .tab-now{padding:0 6px;border-radius:8px;background:#e2f1e6}
-/* 0.2.4 在庫量（BY と倉庫がいつでも直せる）・直した人と時刻・不足・行の確定（商品ごとの締切） */
+/* 0.2.4 在庫数（BY と倉庫がいつでも直せる）・直した人と時刻・不足・行の確定（商品ごとの締切） */
 .cap-cell{min-width:118px}.cap-cell .cap-input{width:84px}
 .cap-who{display:block;margin-top:2px;color:#5f6d64;font-size:10px;white-space:nowrap}
 td.cap-short{color:#9c3932;font-weight:700;white-space:nowrap}
@@ -360,3 +360,58 @@ td.cap-short{color:#9c3932;font-weight:700;white-space:nowrap}
 .form-grid>div .field-note{margin:2px 0 6px}
 /* 週のタブ: 押した直後に印（表を描く前に、押したことが分かる） */
 .week-tab.is-loading b:after{content:"";display:inline-block;width:9px;height:9px;margin-left:6px;border:2px solid #cfe3d5;border-top-color:var(--green);border-radius:50%;vertical-align:-1px;animation:spin .9s linear infinite}
+/* 0.2.5 集約発注（BY が集めて振り分ける商品）: 薄い紫の地＋左の紫の線＋「集約」の札（色だけにしない＝札の文字）。どの画面・印刷でも同じ */
+.agg-badge{display:inline-block;width:fit-content;margin:0 6px 2px 0;padding:0 6px;border:1px solid #b9a3e0;border-radius:7px;background:#efe7fb;color:#4b2f86;font-size:10px;font-weight:700;line-height:1.6;vertical-align:1px}
+/* 地の色は、商品を見分ける列（日付・メーカー・商品・合計）に付ける。店の欄は今までの意味（灰色＝注文なし・月の外・今日）のまま */
+tr.is-aggregate>td.col-date,tr.is-aggregate>td.col-maker,tr.is-aggregate>td.col-product,tr.is-aggregate>td.total-cell,tr.is-aggregate>td.sd-product,tr.is-aggregate>td.sd-total,.stock-table tr.is-aggregate>td{background:#f4eefd!important}
+tr.is-aggregate>td:first-child{box-shadow:inset 4px 0 0 #8e6fd0}
+tr.is-aggregate>td.store-cell{border-top-color:#e4daf6;border-bottom-color:#e4daf6}
+.product-manager-row.is-aggregate .product-manager-item{border-left:4px solid #8e6fd0;background:#faf7fe}
+/* 集約発注の BY の確定（BY＝押す・倉庫と印刷＝見る） */
+.agg-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:5px}
+.agg-confirm,.agg-undo{min-height:30px;padding:3px 12px;border-radius:8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.agg-confirm{border:1px solid #6b4bb8;background:#6b4bb8;color:#fff}
+.agg-confirm:hover:not(:disabled){background:#563a9c}
+.agg-confirm:disabled{border-color:#cfc4e6;background:#ece6f7;color:#7d7194;cursor:not-allowed}
+.agg-undo{border:1px solid #c9bde3;background:#fff;color:#4b2f86;font-weight:600}
+.agg-done{padding:1px 8px;border:1px solid #9fc8ad;border-radius:8px;background:#eaf6ee;color:#1d5b3a;font-size:12px}
+.agg-wait{padding:1px 8px;border:1px dashed #b9a3e0;border-radius:8px;background:#fff;color:#4b2f86;font-size:12px}
+.agg-wait-note{color:#5f5378;font-size:11px}
+.row-status.is-aggwait,.row-status.is-aggsold,.cell-lock.is-aggwait{border-style:dashed;border-color:#b9a3e0;color:#4b2f86}
+.row-status.is-aggdone{border-color:#9fc8ad;color:#1d5b3a}
+/* 在庫数が未入力（店は注文できない）: 赤（締切が未設定と同じ重さ）。色と文字の両方 */
+.nostock-note,.stock-missing-note{display:block;margin-top:3px;color:#9c3932!important;font-weight:700;white-space:normal}
+.cell-lock.is-nostock,.row-status.is-nostock{border-color:#e2b4ae;color:#9c3932}
+.cap-cell.is-missing .cap-input{border:2px solid #d0675e;background:#fff5f4}
+.product-notice.is-stock{border-color:#efcfcb;background:#fff5f4}
+.product-notice.is-stock .product-notice-head strong{color:#9c3932}
+.product-notice.is-agg{border-color:#d6c8f0;background:#f8f4fe}
+.product-notice.is-agg .product-notice-head strong{color:#4b2f86}
+/* 在庫数と注文の合計（月）: BY・倉庫。週のタブの上・たためる */
+.stock-card{margin:0 0 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.stock-card>summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:9px 14px;cursor:pointer;list-style:none}
+.stock-card>summary::-webkit-details-marker{display:none}
+.stock-card>summary:before{content:"▶";color:#5f7d68;font-size:11px}
+.stock-card[open]>summary:before{content:"▼"}
+.stock-title{font-size:14px;font-weight:700}
+.stock-sub{color:#5f6d64;font-size:11px}
+.stock-count{padding:0 8px;border-radius:8px;font-size:12px}
+.stock-count.is-missing{border:1px solid #efcfcb;background:#fff5f4;color:#9c3932}
+.stock-count.is-short{border:1px solid #efcfcb;background:#fff;color:#9c3932}
+.stock-scroll{max-height:340px;overflow:auto;border-top:1px solid var(--line)}
+.stock-table{width:100%;border-collapse:collapse;font-size:12px}
+.stock-table th{position:sticky;top:0;z-index:1;padding:6px 10px;border-bottom:1px solid var(--line);background:#f4f7f4;color:#46574b;font-size:11px;font-weight:700;text-align:left;white-space:nowrap}
+.stock-table td{padding:6px 10px;border-bottom:1px solid #f0f2f0;vertical-align:top}
+.stock-table td.stock-product strong{display:block;font-size:13px}.stock-table td.stock-product small{color:#5f6d64;font-size:10px}
+.stock-table td.stock-total,.stock-table td.stock-rest,.stock-table td.stock-short{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.stock-table td.stock-total{font-size:14px}
+/* 知らせから押して来た所を、少しの間光らせる */
+.is-flash>td,td.is-flash,tr.is-flash{animation:flash 2.2s ease-out}
+@keyframes flash{0%,30%{background-color:#fff1a8}100%{background-color:inherit}}
+@media (prefers-reduced-motion:reduce){.is-flash>td,tr.is-flash{animation-duration:3.5s}}
+@media print{
+  .stock-card,.agg-confirm,.agg-undo,.agg-wait-note{display:none!important}
+  tr.is-aggregate>td.col-maker,tr.is-aggregate>td.col-product,tr.is-aggregate>td.total-cell{background:#f1eafb!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .agg-badge{border:1px solid #000!important;color:#000!important;background:#fff!important}
+  .agg-done,.agg-wait{border:1px solid #000!important;color:#000!important;background:#fff!important}
+}

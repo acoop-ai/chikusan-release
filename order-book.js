@@ -1,9 +1,9 @@
 // 注文の Excel（xlsx）を作る部品と、行ごとの「確定・未確定」の決まり。外の部品は使わない（zip は縮めない stored・CRC32 は自前）。window.OrderBook
 //   画面（app.js の印刷と Excel でダウンロード）と試験が使う。中身は GAS の exportOrders が返した保存済みの値だけ（画面の入力途中の値は入れない）。
-// 確定・未確定の決まり（0.2.4・PO 2026-10-28）。行＝着く日 D × 商品。次のどれか1つでも当たれば確定（店は直せない・BY と倉庫は直せる）:
-//   ①商品の締切: 商品ごとの「締切（何日前）」N（必ず入れる）。（D − N 日）の 12:00（日本時間）を過ぎたら確定 →「確定（2日前 12:00 の締切）」
-//   ②月の締切（MonthlyConfig）を過ぎた →「確定（月の締切）」　③SOLD OUT（在庫量に達した後の日付）→「確定（SOLD OUT）」
-//   締切（何日前）の無い商品は「締切が未設定」＝店は入れられない。未確定は「M/D HH:MM まで直せる」（①と②の早い方）。
+// 確定・未確定の決まり（0.2.5・PO 2026-10-29）。行＝着く日 D × 商品。月の締切は無い。上から順に決める（店は「受付中」のほかは直せない・BY と倉庫は直せる）:
+//   ①締切（何日前）の無い商品＝「締切が未設定」
+//   ②商品の締切（（D − N 日）の 12:00 日本時間）を過ぎた: 通常発注＝「確定（2日前 12:00 の締切）」／集約発注＝BY が確定していれば「確定（BY 確定 …）」・まだなら「未確定（BY の確定待ち）」
+//   ③在庫数が未入力＝「在庫数の入力待ち」　④SOLD OUT（通常発注＝確定・集約発注＝BY の確定待ち）　⑤ほかは「M/D HH:MM まで直せる」
 //   GAS の rowLock_ と同じ決まり（試験が同じかを見る）。日本時間は +9 時間で決める（夏時間なし）
 (function (root) {
   'use strict';
@@ -12,50 +12,49 @@
   const WEEKDAY = '日月火水木金土';
 
   // ------------------------------------------------------------ 確定・未確定（画面・印刷・Excel で同じ）
-  function shortDeadline(config) { return String((config && config.deadlineLabel) || '').replace(/^\d{4}\//, ''); }
   const LEAD_CUTOFF_HOUR = 12, MAX_LEAD_DAYS = 30, JST_OFFSET_MS = 9 * 60 * 60 * 1000;
   const p2 = (n) => String(n).padStart(2, '0');
   /** 締切（何日前）。0〜30 の整数でなければ null（締切が未設定） */
   function leadDaysOf(value) { const n = Number(value); return value === '' || value == null || typeof value === 'boolean' || !Number.isInteger(n) || n < 0 || n > MAX_LEAD_DAYS ? null : n; }
+  /** 発注区分（GAS の orderTypeOf_ と同じ）: 集約発注だけ 'aggregate'・ほかは 'normal' */
+  function orderTypeOf(value) { const s = String(value == null ? '' : value).normalize('NFKC').replace(/\s+/g, '').toLowerCase(); return s === 'aggregate' || s === '集約発注' || s === '集約' ? 'aggregate' : 'normal'; }
+  const isAggregate = (product) => orderTypeOf(product && product.orderType) === 'aggregate';
   /** 商品の締切の時刻（ミリ秒）＝（D − N 日）の 12:00 日本時間 */
   function leadCutoffMs(date, leadDays) { const [y, m, d] = String(date).split('-').map(Number); return Date.UTC(y, m - 1, d - leadDays, LEAD_CUTOFF_HOUR, 0, 0) - JST_OFFSET_MS; }
   function jstLabel(ms) { const d = new Date(ms + JST_OFFSET_MS); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + ' ' + p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()); }
   /** 日本時間のいまの日付（yyyy-MM-dd）。画面の「今日」 */
   function jstToday(nowMs) { return new Date((nowMs == null ? Date.now() : nowMs) + JST_OFFSET_MS).toISOString().slice(0, 10); }
   const leadName = (n) => (n === 0 ? '当日' : n + '日前') + ' 12:00';
+  const LOCKED = ['lead', 'aggwait', 'aggdone', 'nostock', 'soldout', 'aggsold', 'nolead'];
+  /** 行に数（quantities）があって、どの店も 0 か空 */
+  const noOrders = (row) => Boolean(row.quantities) && !Object.values(row.quantities).some((v) => Number(v) > 0);
   /**
    * 行の状態（GAS の rowLock_ と同じ決まり）。返す値:
-   *   { code: 'lead'|'month'|'soldout'|'nolead'|'open'|'nodeadline'|'', locked（店が直せない）, mark: '確定'|'未確定'|'未設定'|'', label: 印刷・Excel の言葉, until: 'M/D HH:MM' }
-   *   product: その行の商品（leadDays）。nowMs: いまの時刻（省くと今）
+   *   { code: 'nolead'|'lead'|'aggwait'|'aggdone'|'nostock'|'soldout'|'aggsold'|'open'|'', locked（店が直せない）, mark: '確定'|'未確定'|'未設定'|'', label: 印刷・Excel の言葉, until: 'M/D HH:MM', aggregate }
+   *   row: { date, inMonth, soldOut, stockMissing, agg: { confirmed, at }, quantities }・product: その行の商品（leadDays・orderType）・nowMs: いまの時刻（省くと今）
+   *   表示だけの決まり: 集約発注で締切の後、quantities があって注文が 0 の日は 'lead'（確定するものが無い）。BY・倉庫は全店の数、店は自店の数で見る。
+   *   GAS の rowLock_ は数を見ないで 'aggwait' のまま（どちらも店は直せないので、受け付けの結果は同じ）
    */
-  function rowStatus(row, config, product, nowMs) {
-    config = config || {};
-    if (!row || row.inMonth === false) return { code: '', locked: false, mark: '', label: '', until: '' };
+  function rowStatus(row, product, nowMs) {
+    if (!row || row.inMonth === false) return { code: '', locked: false, mark: '', label: '', until: '', aggregate: false };
     const now = nowMs == null ? Date.now() : nowMs;
-    const n = leadDaysOf(product && product.leadDays);
-    const month = config.deadline ? new Date(config.deadline).getTime() : NaN;
-    const monthPassed = Boolean(config.confirmed) || (Number.isFinite(month) && now >= month);
+    const n = leadDaysOf(product && product.leadDays); const agg = isAggregate(product);
+    const at = row.agg && row.agg.at ? ' ' + row.agg.at : '';
     const out = (code, until) => {
-      const locked = code === 'lead' || code === 'month' || code === 'soldout' || code === 'nolead';
-      const label = code === 'lead' ? '確定（' + leadName(n) + ' の締切）' : code === 'month' ? '確定（月の締切）' : code === 'soldout' ? '確定（SOLD OUT）' : code === 'nolead' ? '締切が未設定（入れられません）' : code === 'nodeadline' ? '未確定（月の締切が未設定）' : until + ' まで直せる';
-      return { code, locked, mark: code === 'nolead' ? '未設定' : (locked ? '確定' : '未確定'), label, until, leadDays: n };
+      const label = code === 'lead' ? '確定（' + leadName(n) + ' の締切）' : code === 'aggdone' ? '確定（BY 確定' + at + '）' : code === 'aggwait' ? '未確定（BY の確定待ち）'
+        : code === 'nostock' ? '在庫数の入力待ち（入れられません）' : code === 'soldout' ? '確定（SOLD OUT）' : code === 'aggsold' ? 'SOLD OUT（BY の確定待ち）'
+          : code === 'nolead' ? '締切が未設定（入れられません）' : until + ' まで直せる';
+      const mark = code === 'nolead' ? '未設定' : (code === 'lead' || code === 'aggdone' || code === 'soldout') ? '確定' : '未確定';
+      return { code, locked: LOCKED.includes(code), mark, label, until, leadDays: n, aggregate: agg };
     };
-    if (n === null) return monthPassed ? out('month', Number.isFinite(month) ? jstLabel(month) : '') : out('nolead', '');
-    const lead = leadCutoffMs(row.date, n); const leadPassed = now >= lead;
-    if (leadPassed && (!monthPassed || !Number.isFinite(month) || lead <= month)) return out('lead', jstLabel(lead));
-    if (monthPassed) return out('month', Number.isFinite(month) ? jstLabel(month) : '');
-    if (row.soldOut) return out('soldout', '');
-    if (!Number.isFinite(month)) return out('nodeadline', jstLabel(lead));
-    return out('open', lead <= month ? jstLabel(lead) : jstLabel(month));
+    if (n === null) return out('nolead', '');
+    const lead = leadCutoffMs(row.date, n); const until = jstLabel(lead);
+    if (now >= lead) return out(!agg ? 'lead' : row.agg && row.agg.confirmed ? 'aggdone' : noOrders(row) ? 'lead' : 'aggwait', until); // 集約発注で注文の無い日は、BY が確定するものが無い＝締切で確定（店は直せないのは同じ）
+    if (row.stockMissing) return out('nostock', until);
+    if (row.soldOut) return out(agg ? 'aggsold' : 'soldout', until);
+    return out('open', until);
   }
-  /** 月の状態の1行（印刷の上・Excel の上） */
-  function monthStatusText(config) {
-    config = config || {};
-    if (config.confirmed) return '締切後（確定）・締切 ' + (config.deadlineLabel || '');
-    if (config.deadline) return '受付中・月の締切 ' + shortDeadline(config) + '（商品ごとに、着く日の何日前かでも締め切ります）';
-    return '締切未設定（まだ注文を受けていません）';
-  }
-  const LEGEND = '印の見方: 確定＝締切を過ぎた（商品ごとの「着く日の何日前の 12:00」か、月の締切）・SOLD OUT の日。店は直せません（BY・倉庫は直せます）／未確定＝表示の日時まで直せます（網かけ）／未設定＝その商品の締切がまだ決まっていません';
+  const LEGEND = '印の見方: 確定＝締切を過ぎた（商品ごとの「着く日の何日前の 12:00」）・SOLD OUT の日・集約発注は BY が確定した分。店は直せません（BY・倉庫は直せます）／未確定＝表示の日時まで直せる・集約発注で BY の確定待ち・在庫数の入力待ち（網かけ）／未設定＝その商品の締切がまだ決まっていません／集約＝集約発注（紫の地）';
 
   // ------------------------------------------------------------ zip（縮めない stored）と CRC32
   const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -88,13 +87,14 @@
   // ------------------------------------------------------------ xlsx を書く
   const xml = (v) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const colName = (i) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
-  const STYLE = { plain: 0, title: 1, meta: 2, head: 3, text: 4, num: 5, jan: 6, total: 7, totalLabel: 8, open: 9 };
+  // 集約発注の行は、薄い紫の地（textAgg・numAgg・janAgg・openAgg）。画面の .is-aggregate と同じ色の考え（色だけにせず「発注区分」の列に「集約発注」の文字）
+  const STYLE = { plain: 0, title: 1, meta: 2, head: 3, text: 4, num: 5, jan: 6, total: 7, totalLabel: 8, open: 9, textAgg: 10, numAgg: 11, janAgg: 12, openAgg: 13 };
   const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="' + MAIN_NS + '">'
     + '<fonts count="3"><font><sz val="11"/><name val="Meiryo UI"/><family val="3"/><charset val="128"/></font><font><b/><sz val="11"/><name val="Meiryo UI"/><family val="3"/><charset val="128"/></font><font><b/><sz val="13"/><name val="Meiryo UI"/><family val="3"/><charset val="128"/></font></fonts>'
-    + '<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF3ED"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="lightGray"><fgColor rgb="FFB0B0B0"/><bgColor rgb="FFFFFFFF"/></patternFill></fill></fills>'
+    + '<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF3ED"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="lightGray"><fgColor rgb="FFB0B0B0"/><bgColor rgb="FFFFFFFF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF1EAFB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="lightGray"><fgColor rgb="FFB0B0B0"/><bgColor rgb="FFF1EAFB"/></patternFill></fill></fills>'
     + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFC9D6CC"/></left><right style="thin"><color rgb="FFC9D6CC"/></right><top style="thin"><color rgb="FFC9D6CC"/></top><bottom style="thin"><color rgb="FFC9D6CC"/></bottom><diagonal/></border></borders>'
     + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-    + '<cellXfs count="10">'
+    + '<cellXfs count="14">'
     + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
     + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
     + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
@@ -105,6 +105,10 @@
     + '<xf numFmtId="3" fontId="1" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>'
     + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>'
     + '<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+    + '<xf numFmtId="3" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+    + '<xf numFmtId="49" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
     + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
   function cellXml(ref, cell) {
@@ -169,42 +173,45 @@
   /**
    * data＝GAS の exportOrders の返事（保存済みの値）・meta＝{ exportedAt: Date, who: '名前（役割）' }
    * 返す値: { bytes, fileName, sheetNames }
+   *   0.2.5: 月の締切の行は無くした（確定は行ごと）。「発注区分」の列（通常発注／集約発注）・集約発注の行は薄い紫の地。月間合計は「在庫数」（空は「未入力」）
    */
   function build(data, meta) {
     meta = meta || {};
     const config = data.month || {}; const stores = data.stores || [];
     const products = new Map((data.products || []).map((p) => [String(p.id), p]));
     const when = meta.exportedAt instanceof Date && !isNaN(meta.exportedAt) ? meta.exportedAt : new Date();
-    const top = (title) => [[{ v: title, s: 'title' }], [{ v: '締切: ' + (config.deadlineLabel || '未設定') + '　状態: ' + monthStatusText(config), s: 'meta' }], [{ v: '出力: ' + stamp(when) + '　' + (meta.who || ''), s: 'meta' }], [{ v: '数はケース。空の欄は注文なし。' + LEGEND.replace('（網かけ）', '（網かけ・状態の列）'), s: 'meta' }]];
+    const top = (title) => [[{ v: title, s: 'title' }], [{ v: '確定は商品ごと（着く日の何日前の 12:00・SOLD OUT・集約発注は BY の確定）。月の締切はありません。', s: 'meta' }], [{ v: '出力: ' + stamp(when) + '　' + (meta.who || ''), s: 'meta' }], [{ v: '数はケース。空の欄は注文なし。' + LEGEND.replace('（網かけ）', '（網かけ・状態の列）'), s: 'meta' }]];
+    const kind = (p) => (isAggregate(p) ? '集約発注' : '通常発注');
+    const st = (base, p) => (isAggregate(p) ? base + 'Agg' : base); // 集約発注の行は紫の地
     const used = new Set(); const sheets = [];
     (data.weeks || []).forEach((w) => {
       const rows = (w.rows || []).filter((r) => r.inMonth !== false && products.has(String(r.productId)));
       if (!rows.length || !(w.rows || []).length) return;
       const first = w.rows[0].date, last = w.rows[w.rows.length - 1].date;
       const name = sheetName((w.label || '週') + ' ' + md(first) + '〜' + md(last), used);
-      const head = ['日付', '状態', 'メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['合計']).map((v) => ({ v, s: 'head' }));
+      const head = ['日付', '状態', '発注区分', 'メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['合計']).map((v) => ({ v, s: 'head' }));
       const body = rows.map((r) => {
-        const p = products.get(String(r.productId)); const st = rowStatus(r, config, p, when.getTime());
-        const qty = stores.map((s) => { const v = r.quantities && r.quantities[s.id]; return v == null || v === '' || Number(v) === 0 ? { v: '', s: 'num' } : { v: Number(v), s: 'num' }; });
+        const p = products.get(String(r.productId)); const status = rowStatus(r, p, when.getTime());
+        const qty = stores.map((s) => { const v = r.quantities && r.quantities[s.id]; return v == null || v === '' || Number(v) === 0 ? { v: '', s: st('num', p) } : { v: Number(v), s: st('num', p) }; });
         const total = sum(r.quantities, stores);
-        return [{ v: dayLabel(r.date), s: 'text' }, { v: st.label, s: st.locked ? 'text' : 'open' }, { v: p.manufacturer || '', s: 'text' }, { v: p.name || '', s: 'text' }, { v: p.specification || '', s: 'text' }, { v: String(p.jan || ''), s: 'jan' }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: 'num' }].concat(qty, [{ v: total || '', s: 'num' }]);
+        return [{ v: dayLabel(r.date), s: st('text', p) }, { v: status.label, s: status.mark === '確定' ? st('text', p) : st('open', p) }, { v: kind(p), s: st('text', p) }, { v: p.manufacturer || '', s: st('text', p) }, { v: p.name || '', s: st('text', p) }, { v: p.specification || '', s: st('text', p) }, { v: String(p.jan || ''), s: st('jan', p) }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: st('num', p) }].concat(qty, [{ v: total || '', s: st('num', p) }]);
       });
-      const foot = [{ v: '週の合計', s: 'totalLabel' }].concat(Array(6).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: rows.reduce((n, r) => n + (Number(r.quantities && r.quantities[s.id]) || 0), 0), s: 'total' })), [{ v: rows.reduce((n, r) => n + sum(r.quantities, stores), 0), s: 'total' }]);
-      sheets.push({ name, headerRow: 5, freezeCols: 4, filter: true, widths: [11, 18, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8]), rows: top('畜産 発注書　' + (config.label || '') + '　' + (w.label || '') + '（' + dayLabel(first) + '〜' + dayLabel(last) + '）').concat([head], body, [foot]) });
+      const foot = [{ v: '週の合計', s: 'totalLabel' }].concat(Array(7).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: rows.reduce((n, r) => n + (Number(r.quantities && r.quantities[s.id]) || 0), 0), s: 'total' })), [{ v: rows.reduce((n, r) => n + sum(r.quantities, stores), 0), s: 'total' }]);
+      sheets.push({ name, headerRow: 5, freezeCols: 5, filter: true, widths: [11, 22, 10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8]), rows: top('畜産 発注書　' + (config.label || '') + '　' + (w.label || '') + '（' + dayLabel(first) + '〜' + dayLabel(last) + '）').concat([head], body, [foot]) });
     });
-    // 月間合計
-    const head = ['メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['月計'], ['在庫量', '残数', '不足']).map((v) => ({ v, s: 'head' }));
+    // 月間合計（在庫数が空＝未入力。店は注文できない）
+    const head = ['発注区分', 'メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['月計'], ['在庫数', '残数', '不足']).map((v) => ({ v, s: 'head' }));
     const totals = data.monthTotals || {}; const caps = data.caps || {};
     const body = (data.products || []).map((p) => {
       const t = sum(totals[p.id], stores); const c = caps[p.id];
-      return [{ v: p.manufacturer || '', s: 'text' }, { v: p.name || '', s: 'text' }, { v: p.specification || '', s: 'text' }, { v: String(p.jan || ''), s: 'jan' }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: 'num' }]
-        .concat(stores.map((s) => { const v = Number(totals[p.id] && totals[p.id][s.id]) || 0; return { v: v || '', s: 'num' }; }), [{ v: t || '', s: 'num' }], [{ v: c == null ? '' : Number(c), s: 'num' }, { v: c == null ? '' : Math.max(0, Number(c) - t), s: 'num' }, { v: c != null && t > Number(c) ? t - Number(c) : '', s: 'num' }]);
+      return [{ v: kind(p), s: st('text', p) }, { v: p.manufacturer || '', s: st('text', p) }, { v: p.name || '', s: st('text', p) }, { v: p.specification || '', s: st('text', p) }, { v: String(p.jan || ''), s: st('jan', p) }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: st('num', p) }]
+        .concat(stores.map((s) => { const v = Number(totals[p.id] && totals[p.id][s.id]) || 0; return { v: v || '', s: st('num', p) }; }), [{ v: t || '', s: st('num', p) }], [c == null ? { v: '未入力', s: st('open', p) } : { v: Number(c), s: st('num', p) }, { v: c == null ? '' : Math.max(0, Number(c) - t), s: st('num', p) }, { v: c != null && t > Number(c) ? t - Number(c) : '', s: st('num', p) }]);
     });
-    const foot = [{ v: '総合計', s: 'totalLabel' }].concat(Array(4).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: (data.products || []).reduce((n, p) => n + (Number(totals[p.id] && totals[p.id][s.id]) || 0), 0), s: 'total' })), [{ v: (data.products || []).reduce((n, p) => n + sum(totals[p.id], stores), 0), s: 'total' }], [{ v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }]);
-    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 2, filter: true, widths: [14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], [8, 7, 9]), rows: top('畜産 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
+    const foot = [{ v: '総合計', s: 'totalLabel' }].concat(Array(5).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: (data.products || []).reduce((n, p) => n + (Number(totals[p.id] && totals[p.id][s.id]) || 0), 0), s: 'total' })), [{ v: (data.products || []).reduce((n, p) => n + sum(totals[p.id], stores), 0), s: 'total' }], [{ v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }]);
+    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 3, filter: true, widths: [10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], [8, 7, 9]), rows: top('畜産 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
     const wj = jst(when); const fileName = '畜産発注_' + (config.label || config.month || '') + '_' + wj.getUTCFullYear() + p2(wj.getUTCMonth() + 1) + p2(wj.getUTCDate()) + '-' + p2(wj.getUTCHours()) + p2(wj.getUTCMinutes()) + '.xlsx';
     return { bytes: writeXlsx(sheets, when), fileName, sheetNames: sheets.map((s) => s.name) };
   }
 
-  root.OrderBook = Object.freeze({ rowStatus, monthStatusText, LEGEND, shortDeadline, leadDaysOf, leadCutoffMs, jstLabel, jstToday, LEAD_CUTOFF_HOUR, MAX_LEAD_DAYS, crc32, zipStored, writeXlsx, sheetName, dayLabel, build, stamp });
+  root.OrderBook = Object.freeze({ rowStatus, orderTypeOf, isAggregate, LEGEND, leadDaysOf, leadCutoffMs, jstLabel, jstToday, LEAD_CUTOFF_HOUR, MAX_LEAD_DAYS, crc32, zipStored, writeXlsx, sheetName, dayLabel, build, stamp });
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -24,15 +24,25 @@
     { key: 'priceGross', label: '売価（総額）', kind: 'number', names: ['売価（総額）', '売価（税込）'], old: true },
     { key: 'marginRate', label: '値入率', kind: 'number', names: ['値入率'], old: true },
     { key: 'aliases', label: '別名', kind: 'aliases', names: ['別名', '検索用の読み・別名', '読み・別名'], old: true },
-    { key: 'leadDays', label: '締切（何日前）', kind: 'lead', names: ['締切（何日前）', '締切(何日前)', '締切', '何日前'] }
+    { key: 'leadDays', label: '締切（何日前）', kind: 'lead', names: ['締切（何日前）', '締切(何日前)', '締切', '何日前'] },
+    { key: 'orderType', label: '発注区分', kind: 'type', names: ['発注区分', '区分'] }
   ];
-  const TEMPLATE_KEYS = COLUMNS.filter((c) => !c.old).map((c) => c.key); // いまの登録用紙の8列（8つとも「※必須」）
+  const TEMPLATE_KEYS = COLUMNS.filter((c) => !c.old).map((c) => c.key); // いまの登録用紙の9列（9つとも「※必須」・0.2.5 で発注区分を足した）
   const FILL_LATER = ['manufacturer', 'specification', 'jan', 'packSize', 'costNet', 'priceNet']; // 空でも登録できる6つ（あとで埋める・注文は止めない）。商品名・締切（何日前）は空なら登録できない
   const JAN_DIGITS = /^[0-9]{8,13}$/; // JAN の形（数字だけ・8〜13けた）。店内のコードも認めるときは、ここと GAS の JAN_DIGITS_ だけを直す
   const KEYS = COLUMNS.map((c) => c.key);
   const NUMBER_KEYS = COLUMNS.filter((c) => c.kind === 'number').map((c) => c.key);
   const LABEL = Object.fromEntries(COLUMNS.map((c) => [c.key, c.label]));
   const MAX_LEAD = 30;
+  const ORDER_TYPE_LABEL = { normal: '通常発注', aggregate: '集約発注' };
+  /** 発注区分の書き方（GAS の orderTypeKey_ と同じ）。通常発注・通常・normal → 'normal'／集約発注・集約・aggregate → 'aggregate'／空 → ''／ほかは null（エラー） */
+  function orderTypeKey(value) {
+    const s = String(value == null ? '' : value).normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+    if (s === '') return '';
+    if (s === '通常発注' || s === '通常' || s === 'normal') return 'normal';
+    if (s === '集約発注' || s === '集約' || s === 'aggregate') return 'aggregate';
+    return null;
+  }
 
   // ------------------------------------------------------------ 商品の欄の決まり（1か所。GAS の fieldProblem_・missingFields_ と同じ文・試験が同じかを見る）
   const emptyValue = (v) => v === '' || v == null || (typeof v === 'string' && v.trim() === '');
@@ -44,6 +54,7 @@
       if (key === 'leadDays') return '締切（何日前）を入れてください（必ず書きます・0〜' + MAX_LEAD + ' の整数）。';
       return '';
     }
+    if (key === 'orderType') return orderTypeKey(value) === null ? '発注区分は「通常発注」か「集約発注」で入れてください。' : '';
     if (key === 'jan') return JAN_DIGITS.test(janKey(value)) ? '' : 'JAN は数字だけ・8〜13けたで入れてください（JAN の無い商品は空のままでよい）。';
     if (key === 'manufacturer' || key === 'name' || key === 'specification') return String(value).trim().length > 120 ? label + 'は120文字までです。' : '';
     const n = typeof value === 'number' ? value : Number(String(value).trim());
@@ -285,6 +296,14 @@
     if (problem) { errors.push(problem.replace(/。$/, '') + '（いま「' + cellString(cell).trim().slice(0, 12) + '」）。'); return ''; }
     return n;
   }
+  /** 発注区分: 「通常発注」「集約発注」（通常・集約も読む）。空なら ''（新しい商品は通常発注・すでにある商品はいまのまま） */
+  function readType(cell, errors) {
+    if (isBlank(cell)) return '';
+    if (cell.t === 'e') { errors.push('発注区分がエラーの値（' + cell.v + '）です。'); return ''; }
+    const key = orderTypeKey(cellString(cell));
+    if (key === null) { errors.push(fieldProblem('orderType', cellString(cell)).replace(/。$/, '') + '（いま「' + cellString(cell).trim().slice(0, 12) + '」）。'); return ''; }
+    return key;
+  }
   function readAliases(cell, errors) {
     if (isBlank(cell)) return [];
     if (cell.t === 'e') { errors.push('別名がエラーの値（' + cell.v + '）です。'); return []; }
@@ -323,6 +342,7 @@
         else if (col.kind === 'jan') item[col.key] = readJan(cell, errors);
         else if (col.kind === 'number') item[col.key] = readNumber(cell, col, errors);
         else if (col.kind === 'lead') item[col.key] = readLead(cell, errors);
+        else if (col.kind === 'type') item[col.key] = readType(cell, errors);
         else item[col.key] = readAliases(cell, errors);
       });
       if (!item.name && !errors.some((e) => e.startsWith('商品名'))) errors.unshift(fieldProblem('name', ''));
@@ -336,6 +356,7 @@
   function sameValue(key, a, b) {
     const empty = (x) => x === '' || x == null;
     if (key === 'aliases') return JSON.stringify(a || []) === JSON.stringify(b || []);
+    if (key === 'orderType') return (orderTypeKey(a) || 'normal') === (orderTypeKey(b) || 'normal'); // 空は通常発注（GAS と同じ）
     if (empty(a) || empty(b)) return empty(a) && empty(b);
     if (NUMBER_KEYS.includes(key)) return Number(a) === Number(b);
     return String(a) === String(b);
@@ -399,6 +420,7 @@
       if (!l.target) {
         const rec = Object.assign(blankProduct(), l.item);
         l.computed = fillComputed(rec, given); l.record = rec; l.status = 'new'; l.missing = missingFields(rec);
+        if (!rec.orderType) { rec.orderType = 'normal'; l.notes = ['発注区分が空なので「通常発注」にします']; } // GAS も同じ（新しい商品の空は通常発注）
         return;
       }
       const before = l.target; const rec = {};
@@ -408,7 +430,7 @@
       l.status = l.changes.length ? 'update' : 'same'; l.missing = missingFields(rec);
     });
     const counts = { new: 0, update: 0, same: 0, error: 0 };
-    lines.forEach((l) => { counts[l.status]++; if (!l.missing || l.status === 'error') l.missing = []; });
+    lines.forEach((l) => { counts[l.status]++; if (!l.missing || l.status === 'error') l.missing = []; if (!l.notes || l.status === 'error') l.notes = []; });
     const incomplete = lines.filter((l) => l.missing.length).length; // 埋めていない項目のある行（黄色の注意・登録はできる）
     return { lines, counts, incomplete, fileErrors, total, canSave: !fileErrors.length && !counts.error && total > 0 && (counts.new + counts.update) > 0 };
   }
@@ -440,5 +462,5 @@
     return searching ? '当たる商品はありません。' : '';
   }
 
-  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, TEMPLATE_KEYS, FILL_LATER, fieldProblem, missingFields, missingLabel, grossOf, marginOf, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
+  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, TEMPLATE_KEYS, FILL_LATER, ORDER_TYPE_LABEL, orderTypeKey, fieldProblem, missingFields, missingLabel, grossOf, marginOf, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
 })(typeof window !== 'undefined' ? window : globalThis);

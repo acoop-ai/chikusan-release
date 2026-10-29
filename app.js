@@ -1,8 +1,8 @@
 (() => {
   'use strict';
-  // 畜産発注の画面（版 livestock-order-api-0.2.4）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // 畜産発注の画面（版 livestock-order-api-0.2.5）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
   // 信頼境界: GAS から届く文字（商品名・店名など）は、人が打った文字。画面に出すときは textContent か esc() を通す。
-  const APP_VERSION = 'livestock-order-api-0.2.4';
+  const APP_VERSION = 'livestock-order-api-0.2.5';
   const CONFIG = window.APP_CONFIG || {};
   const GAS_URL = String(CONFIG.gasUrl || '');
   const GAS_URL_OK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GAS_URL);
@@ -302,14 +302,14 @@
     const config = data.month || {};
     const select = $('#month-select'); select.replaceChildren();
     const months = Array.isArray(data.months) ? data.months.slice() : [];
-    if (config.month && !months.some((m) => m.month === config.month)) months.push({ month: config.month, label: `${config.label || config.month}（未設定）` });
+    if (config.month && !months.some((m) => m.month === config.month)) months.push({ month: config.month, label: config.label || config.month });
     months.sort((a, b) => String(a.month).localeCompare(String(b.month)));
     months.forEach((item) => { const opt = document.createElement('option'); opt.value = item.month; opt.textContent = item.label || item.month; opt.selected = item.month === config.month; select.append(opt); });
     $('#excel-button').hidden = !(data.principal?.role === 'BY' || data.principal?.role === 'WAREHOUSE'); // 押せる人は GAS も確かめる
-    renderSummary(data, config);
+    renderSummary(data);
     renderRoleNotice(data, config);
     renderLeadWarning(data);
-    renderRoleActions(data, config);
+    renderRoleActions(data);
     renderOrders();
   }
 
@@ -336,51 +336,89 @@
     box.append(head, chips);
     return box;
   }
+  /** BY・倉庫への知らせ（PO 2026-10-29）: 在庫数が未入力の商品（店は注文できない・押すと「在庫数と注文の合計」のその欄へ）と、
+   *   集約発注で BY の確定待ちの分（締切を過ぎてまだ BY が確定していない 商品×着く日・押すとその週のその行へ） */
+  function stockMissingProducts(data) { return (data.products || []).filter((p) => data.caps?.[p.id] == null); }
+  function aggWaiting(data) {
+    const byId = new Map((data.products || []).map((p) => [String(p.id), p])); const out = [];
+    (data.weeks || []).forEach((w) => (w.rows || []).forEach((r) => {
+      const p = byId.get(String(r.productId)); if (!p || !OB || !OB.isAggregate(p) || r.inMonth === false) return;
+      const st = OB.rowStatus(r, p); if (st.code === 'aggwait') out.push({ row: r, product: p }); // 注文の無い日は rowStatus が「確定」を返す（知らせに数えない）
+    }));
+    return out;
+  }
+  function chipNotice(kind, title, note, items, help) {
+    const box = document.createElement('div'); box.className = 'product-notice is-' + kind;
+    const head = document.createElement('p'); head.className = 'product-notice-head';
+    const strong = document.createElement('strong'); strong.textContent = `${title} ${items.length} 件`;
+    const small = document.createElement('span'); small.textContent = note; head.append(strong, small);
+    if (help) { const a = document.createElement('a'); a.className = 'help-icon'; a.href = 'guide.html#' + help; a.title = title + 'の説明'; a.setAttribute('aria-label', title + 'の説明を開く'); a.textContent = '?'; head.append(a); }
+    const chips = document.createElement('div'); chips.className = 'product-notice-list';
+    items.slice(0, 12).forEach((it) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'lead-chip'; b.textContent = it.label; b.addEventListener('click', it.go); chips.append(b); });
+    if (items.length > 12) { const more = document.createElement('span'); more.className = 'product-notice-more'; more.textContent = `ほか ${items.length - 12} 件`; chips.append(more); }
+    box.append(head, chips); return box;
+  }
   function renderLeadWarning(data) {
     const host = $('#lead-warning'); if (!host) return;
-    const gaps = data.principal?.role === 'BY' ? productGaps() : { noLead: [], unfilled: [] };
-    host.replaceChildren(); host.hidden = !gaps.noLead.length && !gaps.unfilled.length; if (host.hidden) return;
+    const role = data.principal?.role; const staff = role === 'BY' || role === 'WAREHOUSE';
+    const gaps = role === 'BY' ? productGaps() : { noLead: [], unfilled: [] };
+    const noStock = staff ? stockMissingProducts(data) : []; const waiting = staff ? aggWaiting(data) : [];
+    host.replaceChildren(); host.hidden = !gaps.noLead.length && !gaps.unfilled.length && !noStock.length && !waiting.length; if (host.hidden) return;
     if (gaps.noLead.length) host.append(gapNotice('lead', gaps.noLead, '締切が未設定の商品', '店で注文できません。押して、すぐ「締切（何日前）」を入れてください。'));
+    if (noStock.length) host.append(chipNotice('stock', '在庫数が未入力の商品', '店で注文できません。押して「在庫数」を入れてください。', noStock.map((p) => ({ label: p.name || '（名前なし）', go: () => focusStock(p.id) })), 'stock'));
+    if (waiting.length) host.append(chipNotice('agg', '集約発注で BY の確定待ち', role === 'BY' ? '締切を過ぎました。押して振り分けを確かめ「確定する」を押してください。' : '締切を過ぎ、BY が振り分けて確定するのを待っています（数が変わることがあります）。', waiting.map((x) => ({ label: `${x.product.name || ''} ${md(x.row.date)}`, go: () => focusAggRow(x.row.date, x.row.productId) })), 'aggregate'));
     if (gaps.unfilled.length) host.append(gapNotice('fill', gaps.unfilled, '埋めていない項目がある商品', '注文はできます。押して、あとで埋めてください。'));
   }
+  /** 「在庫数と注文の合計」のその商品の欄へ（週ごとの表の上。月間合計を見ていたら週ごとに戻す） */
+  function focusStock(productId) {
+    if (state.view !== 'week') { const b = document.querySelector('[data-view="week"]'); if (b) b.click(); }
+    state.search = ''; state.matches = null; const input0 = $('#product-search'); if (input0) input0.value = ''; renderOrders();
+    const input = document.querySelector(`[data-cap-input][data-product="${CSS.escape(String(productId))}"]`); if (!input) return;
+    input.scrollIntoView({ block: 'center' }); input.focus(); flashNode(input.closest('tr'));
+  }
+  /** 集約発注のその行（週のタブを合わせて開き、行を光らせる） */
+  function focusAggRow(date, productId) {
+    if (state.view !== 'week') { const b = document.querySelector('[data-view="week"]'); if (b) b.click(); }
+    const week = (state.data?.weeks || []).find((w) => weekDates(w).includes(date)); if (week) state.weekKey = weekKeyOf(week);
+    state.search = ''; state.matches = null; const input0 = $('#product-search'); if (input0) input0.value = ''; renderOrders();
+    const tr = document.querySelector(`[data-agg-row="${CSS.escape(date + '|' + productId)}"]`); if (!tr) return;
+    tr.scrollIntoView({ block: 'center' }); flashNode(tr); const b = tr.querySelector('[data-agg-confirm],[data-agg-undo]'); if (b && !b.disabled) b.focus();
+  }
+  function flashNode(node) { if (!node) return; node.classList.remove('is-flash'); void node.offsetWidth; node.classList.add('is-flash'); window.setTimeout(() => node.classList.remove('is-flash'), 2200); }
 
-  /** 利用区分・店・締切・状態を、1行の細い帯にまとめる（PO 2026-10-28「4枚の札を1行に」。表が画面の上の方から始まるように） */
-  function renderSummary(data, config) {
+  /** 利用区分・店・締切の考え方・残数を、1行の細い帯にまとめる（PO 2026-10-28「4枚の札を1行に」。表が画面の上の方から始まるように）。
+   *   0.2.5: 月の締切は無い（PO 2026-10-29）。締切は商品ごと＝帯には「締切は商品ごと」と説明への「?」だけ */
+  function renderSummary(data) {
     const principal = data.principal || {};
     const host = $('#summary-strip'); host.replaceChildren();
     const part = (label, value, cls, title) => { const s = document.createElement('span'); s.className = 'summary-item ' + (cls || ''); if (label) { const l = document.createElement('small'); l.textContent = label; s.append(l); } const b = document.createElement('b'); b.textContent = value; s.append(b); if (title) s.title = title; host.append(s); return s; };
     part('', principal.roleLabel || principal.role || '', 'is-role');
     if (principal.role === 'STORE') part('', principal.shortLabel || principal.label || '', 'is-store', principal.label || '');
-    const dl = part('締切', config.deadline ? (OB ? OB.shortDeadline(config) : config.deadlineLabel) : '未設定', 'is-deadline', config.deadlineLabel || '');
+    const dl = part('締切', '商品ごと（着く日の何日前の 12:00）', 'is-deadline', '締切は商品ごとに決まっています。日の見出しと欄の印を見てください');
     const help = document.createElement('a'); help.className = 'help-icon'; help.href = 'guide.html#deadline'; help.title = '締切と確定の説明'; help.setAttribute('aria-label', '締切と確定の説明を開く'); help.textContent = '?'; dl.append(help);
-    part('', config.statusLabel || '', config.confirmed ? 'is-closed' : (config.deadline ? 'is-open' : 'is-wait'));
     const at = part('残数', remain.at ? `${remain.at} 時点` : '—', 'is-remain'); at.id = 'remain-at';
     const btn = document.createElement('button'); btn.type = 'button'; btn.id = 'refresh-button'; btn.className = 'button button-secondary refresh-button';
-    if (remain.refreshing) { btn.disabled = true; btn.classList.add('is-busy'); btn.append(spinner(), document.createTextNode('更新中…')); } else btn.textContent = '更新'; btn.title = '在庫量・残数と、注文の数を読み直します（保存中の欄は、終わってから）';
+    if (remain.refreshing) { btn.disabled = true; btn.classList.add('is-busy'); btn.append(spinner(), document.createTextNode('更新中…')); } else btn.textContent = '更新'; btn.title = '在庫数・残数・BY の確定と、注文の数を読み直します（保存中の欄は、終わってから）';
     btn.addEventListener('click', refreshAll); host.append(btn);
   }
 
   function renderRoleNotice(data, config) {
     const host = $('#role-notice'); const role = data.principal?.role;
     let message = '', kind = 'info';
-    if (role === 'STORE') {
-      if (!config.deadline) { message = 'この月の締切は、まだ決まっていません。畜産BYが締切を入れると、注文を入れられます。'; kind = 'wait'; }
-      else if (config.confirmed) { message = '締切を過ぎました（確定）。直すときは、畜産BYへ頼んでください。'; kind = 'wait'; }
-      else message = '週はタブで切り替えます。日の欄にケース数を入れると、自動で保存されます（右上に「✓ 自動保存」）。'; // 締切は上の帯に1回だけ出す
-    } else if (role === 'WAREHOUSE') message = '注文の入っていない欄は灰色です。注文と在庫量は、確定の後も直せます（入れると自動で保存）。';
-    else if (role === 'BY' && !config.configured) { message = 'この月は、まだ用意していません。下の「この月を用意する」で締切を入れると、店舗にも表示されます。'; kind = 'wait'; }
+    if (role === 'STORE') message = config.hasProducts === false ? '' : '週はタブで切り替えます。日の欄にケース数を入れると、自動で保存されます（右上に「✓ 自動保存」）。締切は商品ごと（着く日の何日前の 12:00）です。';
+    else if (role === 'WAREHOUSE') message = '注文の入っていない欄は灰色です。注文と在庫数は、確定の後も直せます（入れると自動で保存）。紫の地は集約発注（BY が確定するまで未確定）。';
+    else if (role === 'BY' && config.hasProducts === false) { message = 'この月の商品は、まだありません。下の「前の月の商品をこの月にも入れる」か「商品マスター」で入れると、店舗にも表示されます。'; kind = 'wait'; }
     host.hidden = !message; text(host, message); host.className = `role-notice ${kind === 'wait' ? 'is-wait' : ''}`;
   }
 
-  function renderRoleActions(data, config) {
+  function renderRoleActions(data) {
     const role = data.principal?.role;
     const host = $('#role-actions'); host.replaceChildren();
     if (role === 'BY') {
-      host.append(makeButton('月度設定', () => openSettings(), 'button button-secondary'));
       host.append(makeButton('商品マスター', () => openProductManager(), 'button button-secondary'));
       host.append(makeButton('操作履歴', () => openAuditLog(), 'button button-secondary'));
     }
-    if (role === 'BY' || role === 'WAREHOUSE' || (role === 'STORE' && config.deadline && !config.confirmed)) { const ind = document.createElement('span'); ind.id = 'save-indicator'; ind.setAttribute('role', 'status'); ind.setAttribute('aria-live', 'polite'); host.append(ind); } // 保存のボタンは作らない（自動保存）。倉庫は在庫量
+    if (role === 'BY' || role === 'WAREHOUSE' || role === 'STORE') { const ind = document.createElement('span'); ind.id = 'save-indicator'; ind.setAttribute('role', 'status'); ind.setAttribute('aria-live', 'polite'); host.append(ind); } // 保存のボタンは作らない（自動保存）。倉庫は注文と在庫数
     renderIndicator();
   }
 
@@ -395,17 +433,38 @@
     const products = filteredProducts(data.products || []);
     if (state.view === 'month') { host.innerHTML = renderMonthSummary(data, products, config); scrollToOwnColumn(host); return; }
     const weeks = Array.isArray(data.weeks) ? data.weeks : [];
-    if (data.principal?.role === 'BY' && (!config.configured || !(data.products || []).length)) { renderSetupCard(host, config); return; }
-    if (!weeks.length || !(data.products || []).length) { host.innerHTML = emptyState('この月の注文書は、まだ用意されていません。', '畜産BYが月を用意して商品を入れると、週ごとの表が出ます。'); return; }
+    if (!(data.products || []).length) { if (data.principal?.role === 'BY') renderSetupCard(host, config); else host.innerHTML = emptyState('この月の注文書は、まだありません。', '畜産BYがこの月の商品を入れると、週ごとの表が出ます。'); return; }
+    if (!weeks.length) { host.innerHTML = emptyState('この月の注文書は、まだありません。', '画面を読み込み直してください。'); return; }
     if (!products.length) { host.innerHTML = emptyState('探した商品は見つかりませんでした。', 'ひらがな・カタカナ・ローマ字・JANの一部でも探せます。空白で区切ると、どの語も含む商品だけが出ます。'); return; }
-    // 週はタブで切り替える（PO 2026-10-28）。店は横に7日・BY と倉庫は縦に日付（日ごとの帯）
+    // 週はタブで切り替える（PO 2026-10-28）。店は横に7日・BY と倉庫は縦に日付（日ごとの帯）。BY と倉庫は、週のタブの上に「在庫数と注文の合計」（PO 2026-10-29）
     const idx = currentWeekIndex(weeks); const week = weeks[idx];
-    const before = host.querySelector('.table-scroll'); const keep = before && host.dataset.week === weekKeyOf(week) ? { top: before.scrollTop, left: before.scrollLeft } : null;
+    const before = host.querySelector('.week-card .table-scroll'); const keep = before && host.dataset.week === weekKeyOf(week) ? { top: before.scrollTop, left: before.scrollLeft } : null;
     state.weekKey = weekKeyOf(week); host.dataset.week = state.weekKey;
     const isStore = data.principal?.role === 'STORE';
-    host.innerHTML = weekTabsMarkup(weeks, idx) + (isStore ? renderStoreWeek(week, data, products, config) : renderWeek(week, data, products, config, { bands: true }));
+    host.innerHTML = (isStore ? '' : stockCardMarkup(data, products)) + weekTabsMarkup(weeks, idx) + (isStore ? renderStoreWeek(week, data, products, config) : renderWeek(week, data, products, config, { bands: true }));
+    const card = host.querySelector('details.stock-card'); if (card) card.addEventListener('toggle', () => { state.stockOpen = card.open; });
     setTheadHeights(host); markWeekTabs();
-    const box = host.querySelector('.table-scroll'); if (keep && box) { box.scrollTop = keep.top; box.scrollLeft = keep.left; } else if (isStore && box) scrollToFirstOpenDay(box);
+    const box = host.querySelector('.week-card .table-scroll'); if (keep && box) { box.scrollTop = keep.top; box.scrollLeft = keep.left; } else if (isStore && box) scrollToFirstOpenDay(box);
+  }
+  /**
+   * BY・倉庫: 「在庫数と注文の合計（月）」（PO 2026-10-29「発注の合計数の横に、在庫数を表示する場所」）。週ごとの表の上に、商品ごと1行。
+   *   在庫数は入れると自動で保存（BY と倉庫・だれがいつ直したか）。空欄＝未入力＝店はその商品を注文できない（赤い印）。残り・不足も並べる。
+   *   たたむと見出しの1行だけ（未入力と不足の件数は見出しに出す）。たたんだかどうかは、開いている間だけ覚える
+   */
+  function stockCardMarkup(data, products) {
+    const totals = data.allTotals || {}; const info = data.capsInfo || {};
+    let missing = 0, short = 0;
+    const rows = products.map((p) => {
+      const pid = String(p.id); const total = Number(totals[pid]) || 0; const cap = data.caps?.[pid];
+      const pend = state.capPending.get(pid); const value = pend ? (pend.quantity == null ? '' : pend.quantity) : (cap == null ? '' : cap);
+      const shortage = cap != null && total > Number(cap) ? total - Number(cap) : 0; if (cap == null) missing++; if (shortage) short++;
+      const by = info[pid] && info[pid].who ? `${info[pid].who} ${info[pid].at}` : '';
+      const agg = OB && OB.isAggregate(p);
+      return `<tr class="${agg ? 'is-aggregate' : ''} ${cap == null ? 'is-stock-missing' : ''}"><td class="stock-product">${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name || '')}</strong><small>${esc(p.manufacturer || '')}　${esc(p.specification || '')}</small></td><td class="stock-total">${total || '—'}</td><td class="cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(pid)}"><input class="cap-input" data-cap-input data-product="${esc(pid)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(pid)}</td><td class="stock-rest">${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="stock-short ${shortage ? 'cap-short' : ''}">${shortage ? `不足 ${esc(shortage)}` : '—'}</td></tr>`;
+    }).join('');
+    const counts = [missing ? `<b class="stock-count is-missing">未入力 ${missing} 件</b>` : '', short ? `<b class="stock-count is-short">不足 ${short} 件</b>` : ''].filter(Boolean).join('');
+    const open = state.stockOpen !== false;
+    return `<details class="stock-card" ${open ? 'open' : ''}><summary><span class="stock-title">在庫数と注文の合計（月）</span>${counts}<span class="stock-sub">在庫数は入れると自動で保存（BY と倉庫）・空欄の商品は、店が注文できません　<b class="unit-note">数はケース</b></span></summary><div class="stock-scroll"><table class="stock-table"><thead><tr><th>商品</th><th>注文の合計</th><th>在庫数</th><th>残り</th><th>不足</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
   }
   /** 店の7日の表: 入れられる最初の日（今日が月の中なら今日）が、商品の列のすぐ右に見えるように、横の位置を合わせる（スマホで探さない） */
   function scrollToFirstOpenDay(box) {
@@ -456,14 +515,14 @@
     const nowMs = Date.now();
     const dayInfo = new Map(days.map((d) => {
       if (!d.inMonth || !OB) return [d.date, { uniform: true, st: null }];
-      const sts = products.map((p) => { const row = byKey.get(d.date + '|' + p.id); return row ? OB.rowStatus(row, config, p, nowMs) : null; }).filter(Boolean);
-      const keyOf = (x) => (x.code === 'nolead' ? 'nolead' : x.locked ? 'locked' : x.code + '|' + x.until);
+      const sts = products.map((p) => { const row = byKey.get(d.date + '|' + p.id); return row ? OB.rowStatus(row, p, nowMs) : null; }).filter(Boolean);
+      const keyOf = (x) => (x.code === 'nolead' || x.code === 'nostock' || x.code === 'aggwait' ? x.code : x.locked ? 'locked' : x.code + '|' + x.until);
       return [d.date, { uniform: sts.length > 0 && sts.every((x) => keyOf(x) === keyOf(sts[0])), st: sts[0] || null }];
     }));
     const head = days.map((d) => {
       const info = dayInfo.get(d.date); const st = info.st;
       const mark = !d.inMonth ? '<span class="dh-out">月の外</span>' : !st ? '' : !info.uniform ? '<span class="row-status is-mixed" title="商品ごとに締切の日が違います。欄の印を見てください">商品で違う</span>'
-        : st.code === 'nolead' ? `<span class="row-status is-nolead" title="${esc(st.label)}">未設定</span>` : st.locked ? `<span class="row-status is-${st.code}" title="${esc(st.label)}">確定</span>` : `<span class="row-status is-${st.code}" title="${esc(st.label)}">〜${esc(st.until)}</span>`;
+        : st.code === 'nolead' ? `<span class="row-status is-nolead" title="${esc(st.label)}">未設定</span>` : st.code === 'nostock' ? `<span class="row-status is-nostock" title="${esc(st.label)}">在庫待ち</span>` : st.code === 'aggwait' ? `<span class="row-status is-aggwait" title="${esc(st.label)}">BYの確定待ち</span>` : st.locked ? `<span class="row-status is-${st.code}" title="${esc(st.label)}">確定</span>` : `<span class="row-status is-${st.code}" title="${esc(st.label)}">〜${esc(st.until)}</span>`;
       return `<th class="day-head ${dayClass(d.date)} ${d.date === today ? 'is-today' : ''} ${d.inMonth ? '' : 'is-outside'}"><span class="dh-date">${esc(md(d.date))}</span><span class="dh-wd">${WEEKDAY.charAt(weekdayOf(d.date))}</span>${d.date === today ? '<span class="dh-today">今日</span>' : ''}${mark}</th>`;
     }).join('');
     const body = products.map((p) => {
@@ -476,13 +535,15 @@
         const pend = state.pending.get(pkey(row.date, String(row.productId), own)); const saved = row.quantities?.[own];
         const value = pend ? (pend.quantity == null ? '' : pend.quantity) : (saved == null || saved === '' ? '' : saved);
         total += Number(value) || 0;
-        const st = OB ? OB.rowStatus(row, config, p, nowMs) : null; const mixed = !dayInfo.get(d.date).uniform;
-        if (!cellEditable(row, own)) return `<td class="${cls} ${st && st.locked ? 'is-locked is-' + st.code : ''} ${value === '' ? 'is-empty' : 'has-qty'}" title="${esc(st ? st.label : '')}"><span class="qty-view" aria-label="${esc(md(d.date))} ${esc(p.name)} のケース数・${esc(st ? st.label : '')}">${value === '' ? '' : esc(value)}</span>${st && st.code === 'soldout' ? '<span class="sold-out">SOLD OUT</span>' : (st && st.code === 'nolead' ? '<span class="cell-lock is-nolead">未設定</span>' : (st && st.locked ? '<span class="cell-lock">確定</span>' : ''))}${editedMark(row, own)}</td>`;
+        const st = OB ? OB.rowStatus(row, p, nowMs) : null; const mixed = !dayInfo.get(d.date).uniform;
+        if (!cellEditable(row, own)) return `<td class="${cls} ${st && st.locked ? 'is-locked is-' + st.code : ''} ${value === '' ? 'is-empty' : 'has-qty'}" title="${esc(st ? st.label : '')}"><span class="qty-view" aria-label="${esc(md(d.date))} ${esc(p.name)} のケース数・${esc(st ? st.label : '')}">${value === '' ? '' : esc(value)}</span>${cellLockMark(st)}${editedMark(row, own)}</td>`;
         const k = pkey(row.date, String(row.productId), own);
         return `<td class="${cls} ${value === '' ? 'is-empty' : 'has-qty'} ${cellClass(k)}"><input aria-label="${esc(md(d.date))}（${WEEKDAY.charAt(weekdayOf(d.date))}） ${esc(p.name)} のケース数・${esc(st ? st.label : '')}" type="number" inputmode="numeric" min="0" step="1" value="${esc(value)}" data-order-input data-date="${esc(row.date)}" data-product="${esc(row.productId)}" data-store="${esc(own)}">${mixed && st && !st.locked ? `<span class="cell-until">〜${esc(st.until)}</span>` : ''}${editedMark(row, own)}${cellStateMarkup(k)}</td>`;
       }).join('');
-      const noLead = OB && OB.leadDaysOf(p.leadDays) === null;
-      return `<tr class="${noLead ? 'is-nolead-row' : ''}"><td class="col-product product-cell sd-product"><small class="sd-maker">${esc(p.manufacturer || '')}</small><strong>${esc(p.name || '')}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${productDetailsMarkup(p)}${noLead ? '<small class="nolead-note">締切が未設定のため入れられません（畜産BYへ）</small>' : ''}${capHint(p.id, remaining)}</td>${cells}<td class="total-cell sd-total" data-week-total>${total || '—'}</td></tr>`;
+      const noLead = OB && OB.leadDaysOf(p.leadDays) === null; const agg = OB && OB.isAggregate(p);
+      const noStock = !noLead && (week.rows || []).some((r) => String(r.productId) === String(p.id) && r.inMonth !== false && r.stockMissing);
+      const note = noLead ? '<small class="nolead-note">締切が未設定のため入れられません（畜産BYへ）</small>' : noStock ? '<small class="nostock-note">在庫数の入力待ち（入れられません）</small>' : capHint(p.id, remaining);
+      return `<tr class="${noLead ? 'is-nolead-row' : ''} ${agg ? 'is-aggregate' : ''}"><td class="col-product product-cell sd-product"><small class="sd-maker">${esc(p.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name || '')}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${productDetailsMarkup(p)}${note}</td>${cells}<td class="total-cell sd-total" data-week-total>${total || '—'}</td></tr>`;
     }).join('');
     const dates = days.map((d) => d.date);
     return `<section class="week-card store-week"><div class="week-heading"><h3>${esc(week.label || '週')}　${esc(md(dates[0]))}〜${esc(md(dates[dates.length - 1]))}</h3><span>自店: ${esc(ownStore.short || ownStore.name || '')}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table store-week-table"><thead><tr><th class="col-product sd-product">商品・規格・JAN</th>${head}<th class="sd-total">週の合計</th></tr></thead><tbody>${body}</tbody></table></div>${legendLine()}</section>`;
@@ -510,10 +571,38 @@
     return stores.map((s) => { const own = String(s.id) === String(ownId); return `<th class="store-head ${own ? 'is-own' : ''}" title="${esc(s.name)}">${own ? '<span class="own-badge">自店</span>' : ''}${esc(s.short || s.name)}</th>`; }).join('');
   }
   /** 行の「確定・未確定」の小さな印（日付の下・表の幅を広げない）。決まりは order-book.js の rowStatus（印刷・Excel と同じ） */
-  function statusMark(row, config, product) {
-    if (!OB) return '';
-    const st = OB.rowStatus(row, config, product); if (!st.code) return '';
-    return `<span class="row-status is-${st.code}" title="${esc(st.label)}">${esc(st.mark)}</span>`;
+  function statusMark(st) {
+    if (!st || !st.code) return '';
+    const text = st.code === 'aggwait' || st.code === 'aggsold' ? 'BY の確定待ち' : st.code === 'nostock' ? '在庫待ち' : st.mark;
+    return `<span class="row-status is-${st.code}" title="${esc(st.label)}">${esc(text)}</span>`;
+  }
+  /** 店の欄（入れられないとき）の小さな印 */
+  function cellLockMark(st) {
+    if (!st) return '';
+    if (st.code === 'soldout' || st.code === 'aggsold') return '<span class="sold-out">SOLD OUT</span>';
+    if (st.code === 'nolead') return '<span class="cell-lock is-nolead">未設定</span>';
+    if (st.code === 'nostock') return '<span class="cell-lock is-nostock">在庫待ち</span>';
+    if (st.code === 'aggwait') return '<span class="cell-lock is-aggwait">BYの確定待ち</span>';
+    return st.locked ? '<span class="cell-lock">確定</span>' : '';
+  }
+  /**
+   * 集約発注の行の「BY の確定」（PO 2026-10-29「確定は締め切りと同時ではなく、BY が確定をして初めて確定」「倉庫側には BY がきちんと承認したかどうかがわかるように」）。
+   *   BY の画面: 締切の後＝「確定する」・確定した後＝「✓ BY 確定 時刻」と「確定を取り消す」・締切の前＝押せない「確定する」と、いつから押せるか
+   *   倉庫と印刷: 「✓ BY 確定 時刻」か「BY の確定待ち」（締切の前は「締切の後に BY が確定」）
+   */
+  function aggControl(row, product, st, opts) {
+    if (!OB || !OB.isAggregate(product) || row.inMonth === false || !st || st.code === 'nolead') return '';
+    const done = row.agg && row.agg.confirmed; const at = row.agg && row.agg.at ? ` ${row.agg.at}` : '';
+    const key = esc(row.date + '|' + row.productId);
+    const after = st.code === 'aggwait' || st.code === 'aggdone';
+    if (st.code === 'lead') return state.data?.principal?.role === 'BY' && !opts.readOnly ? '<span class="agg-ctl"><small class="agg-wait-note">注文なし（確定は要りません）</small></span>' : ''; // 締切の後で注文の無い日（rowStatus が「確定」）は、確定するものが無い
+    if (state.data?.principal?.role === 'BY' && !opts.readOnly) {
+      if (done) return `<span class="agg-ctl"><b class="agg-done">✓ BY 確定${esc(at)}</b><button type="button" class="agg-undo" data-agg-undo="${key}">確定を取り消す</button></span>`;
+      if (after) return `<span class="agg-ctl"><button type="button" class="agg-confirm" data-agg-confirm="${key}">確定する</button><small class="agg-wait-note">振り分けを確かめて押す</small></span>`;
+      return `<span class="agg-ctl"><button type="button" class="agg-confirm" disabled>確定する</button><small class="agg-wait-note">締切 ${esc(st.until)} の後に確定できます</small></span>`;
+    }
+    if (done) return `<span class="agg-ctl"><b class="agg-done">✓ BY 確定${esc(at)}</b></span>`;
+    return `<span class="agg-ctl"><b class="agg-wait">${after ? 'BY の確定待ち' : '締切の後に BY が確定'}</b></span>`;
   }
   /** その欄を BY・倉庫が直したときの小さな印（店の画面。店が自分の数と違うと迷わないように） */
   function editedMark(row, storeId) { const who = row && row.editedBy && row.editedBy[storeId]; return who ? `<span class="edited-by">${esc(who === '畜産BY' ? 'BY ' : who)}が直しました</span>` : ''; }
@@ -551,8 +640,10 @@
         const k = pkey(row.date, String(row.productId), String(st.id));
         return `<td class="${cls} ${cellClass(k)}"><input aria-label="${esc(row.dateLabel)} ${esc(product.name)} ${esc(st.name)}のケース数" type="number" inputmode="numeric" min="0" step="1" value="${esc(value)}" data-order-input data-date="${esc(row.date)}" data-product="${esc(row.productId)}" data-store="${esc(st.id)}">${cellStateMarkup(k)}</td>`;
       }).join('');
-      const rs = OB ? OB.rowStatus(row, config, product).code : '';
-      return `<tr class="${soldOut ? 'soldout-row' : ''} ${row.inMonth === false ? 'outside-month-row' : ''} ${rs ? 'status-' + rs : ''}"><td class="col-date">${esc(row.dateLabel || row.date)}${soldOut ? '<br><span class="sold-out">SOLD OUT</span>' : ''}${statusMark(row, config, product)}</td><td class="col-maker">${esc(product.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(product.manufacturer || '')}</small><strong>${esc(product.name || '')}</strong><small>${esc(product.specification || '')}　${esc(product.jan || '')}</small>${productDetailsMarkup(product)}${OB && OB.leadDaysOf(product.leadDays) === null ? '<small class="nolead-note">締切が未設定（店は入れられません）</small>' : ''}${!soldOut && row.inMonth !== false ? capHint(row.productId, row.remaining) : ''}</td>${cells}<td class="total-cell">${total || '—'}</td></tr>`;
+      const st = OB && row.inMonth !== false ? OB.rowStatus(row, product, opts.nowMs) : null; const rs = st ? st.code : '';
+      const agg = OB && OB.isAggregate(product); const noLead = OB && OB.leadDaysOf(product.leadDays) === null;
+      const note = noLead ? '<small class="nolead-note">締切が未設定（店は入れられません）</small>' : row.inMonth !== false && row.stockMissing ? '<small class="nostock-note">在庫数が未入力（店は入れられません）</small>' : (!soldOut && row.inMonth !== false ? capHint(row.productId, row.remaining) : '');
+      return `<tr class="${soldOut ? 'soldout-row' : ''} ${row.inMonth === false ? 'outside-month-row' : ''} ${rs ? 'status-' + rs : ''} ${agg ? 'is-aggregate' : ''}" ${agg ? `data-agg-row="${esc(row.date + '|' + row.productId)}"` : ''}><td class="col-date">${esc(row.dateLabel || row.date)}${soldOut ? '<br><span class="sold-out">SOLD OUT</span>' : ''}${statusMark(st)}</td><td class="col-maker">${esc(product.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(product.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(product.name || '')}</strong><small>${esc(product.specification || '')}　${esc(product.jan || '')}</small>${productDetailsMarkup(product)}${aggControl(row, product, st, opts)}${note}</td>${cells}<td class="total-cell">${total || '—'}</td></tr>`;
     };
     let body;
     if (opts.bands) {
@@ -568,7 +659,7 @@
     return `<section class="week-card"><div class="week-heading"><h3>${esc(week.label || '週')}</h3><span>${esc(week.startLabel || '')}${week.endLabel ? ` ～ ${esc(week.endLabel)}` : ''}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table ${stores.length === 1 ? 'is-single' : ''} ${opts.bands ? 'has-day-bands' : ''}"><thead><tr>${columns}</tr></thead>${body}</table></div>${legendLine()}</section>`;
   }
 
-  /** 月間合計。BY と倉庫は 在庫量（いつでも直せる・自動保存）・直した人と時刻・残数・不足。店は残数だけ（在庫量・ほかの店の内訳は出さない） */
+  /** 月間合計。BY と倉庫は 在庫数（いつでも直せる・自動保存・空欄は未入力＝店は注文できない）・直した人と時刻・残数・不足。店は残数だけ（在庫数・ほかの店の内訳は出さない） */
   function renderMonthSummary(data, products, config) {
     const stores = data.stores || []; const totals = data.monthTotals || {}; const ownStoreId = data.principal?.storeId;
     if (!products.length) return emptyState('月間合計はありません。', '対象月と商品が決まると、商品・店舗ごとの合計が出ます。');
@@ -582,14 +673,16 @@
         const value = pend ? (pend.quantity == null ? '' : pend.quantity) : (cap == null ? '' : cap);
         const by = info[p.id] && info[p.id].who ? `${info[p.id].who} ${info[p.id].at}` : '';
         const shortage = cap != null && total > Number(cap) ? total - Number(cap) : 0;
-        tail = `<td class="cap-cell ${capCellClass(String(p.id))}"><input class="cap-input" data-cap-input data-product="${esc(p.id)}" type="number" inputmode="numeric" min="0" step="1" placeholder="制限なし" value="${esc(value)}" aria-label="${esc(p.name)}の在庫量"><small class="cap-who">${esc(by)}</small>${capStateMarkup(String(p.id))}</td><td>${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="${shortage ? 'cap-short' : ''}">${shortage ? `不足 ${esc(shortage)} ケース` : '—'}</td>`;
+        tail = `<td class="cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(String(p.id))}"><input class="cap-input" data-cap-input data-product="${esc(p.id)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(String(p.id))}</td><td>${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="${shortage ? 'cap-short' : ''}">${shortage ? `不足 ${esc(shortage)} ケース` : '—'}</td>`;
       } else {
-        const r = restOf(p.id); tail = `<td>${r == null ? '—' : (r <= 0 ? '0（SOLD OUT）' : esc(r))}</td>`;
+        const r = restOf(p.id); const missing = (data.weeks || []).some((w) => (w.rows || []).some((x) => String(x.productId) === String(p.id) && x.inMonth !== false && x.stockMissing));
+        tail = `<td>${missing ? '在庫数の入力待ち' : r == null ? '—' : (r <= 0 ? '0（SOLD OUT）' : esc(r))}</td>`;
       }
-      return `<tr><td class="col-maker">${esc(p.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(p.manufacturer || '')}</small><strong>${esc(p.name)}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${productDetailsMarkup(p)}</td>${stores.map((s) => { const v = Number(totals[p.id]?.[s.id]) || 0; return `<td class="total-cell store-cell ${String(s.id) === String(ownStoreId) ? 'is-own' : ''} ${v ? '' : 'is-empty'}">${v || '—'}</td>`; }).join('')}<td class="total-cell">${total || '—'}</td>${tail}</tr>`;
+      const agg = OB && OB.isAggregate(p);
+      return `<tr class="${agg ? 'is-aggregate' : ''}"><td class="col-maker">${esc(p.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(p.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name)}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${productDetailsMarkup(p)}</td>${stores.map((s) => { const v = Number(totals[p.id]?.[s.id]) || 0; return `<td class="total-cell store-cell ${String(s.id) === String(ownStoreId) ? 'is-own' : ''} ${v ? '' : 'is-empty'}">${v || '—'}</td>`; }).join('')}<td class="total-cell">${total || '—'}</td>${tail}</tr>`;
     }).join('');
-    const heads = `<th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>月計</th>${canEdit ? '<th>在庫量</th><th>残数</th><th>不足</th>' : '<th>残数</th>'}`;
-    return `<section class="week-card"><div class="week-heading"><h3>${esc(config.label || '月間合計')}</h3><span>${canEdit ? '在庫量は、入れると自動で保存されます（BY と倉庫がいつでも直せる・空欄は制限なし）' : '商品ごとの月の合計と残数'}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table month-table ${stores.length === 1 ? 'is-single' : ''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    const heads = `<th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>月計</th>${canEdit ? '<th>在庫数</th><th>残数</th><th>不足</th>' : '<th>残数</th>'}`;
+    return `<section class="week-card"><div class="week-heading"><h3>${esc(config.label || '月間合計')}</h3><span>${canEdit ? '在庫数は、入れると自動で保存されます（BY と倉庫がいつでも直せる・空欄は未入力＝店は注文できません）' : '商品ごとの月の合計と残数'}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table month-table ${stores.length === 1 ? 'is-single' : ''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
   }
 
   /** 店の画面は、横に長い表でも「自店」の列が最初から見えるように、横の位置を合わせる */
@@ -614,27 +707,22 @@
       ['売価', has(product.priceNet) ? `${product.priceNet}円（本体）` : ''],
       ['売価税込', has(product.priceGross) ? `${product.priceGross}円` : ''],
       ['値入率', has(product.marginRate) ? marginLabel : ''],
-      ['締切:', OB && OB.leadDaysOf(product.leadDays) !== null ? `${OB.leadDaysOf(product.leadDays)}日前 12:00` : '未設定']
+      ['締切:', OB && OB.leadDaysOf(product.leadDays) !== null ? `${OB.leadDaysOf(product.leadDays)}日前 12:00` : '未設定'],
+      ['発注区分:', OB && OB.isAggregate(product) ? '集約発注（BY が確定）' : '通常発注']
     ].filter((entry) => entry[1]);
     if (!details.length) return '';
     return `<details class="product-details"><summary>商品情報</summary><span>${details.map(([label, value]) => `${esc(label)} ${esc(value)}`).join('　')}</span></details>`;
   }
 
-  /** BY: 用意していない月を選んだとき「この月を用意する」・商品の無い月「前の月の商品をこの月にも入れる」（押す所を表の場所に出す） */
+  /** BY: 商品の無い月「前の月の商品をこの月にも入れる」（押す所を表の場所に出す）。月を「用意する」操作は無い（0.2.5・月は13か月ぶん、いつも選べる） */
   function renderSetupCard(host, config) {
     host.innerHTML = '';
     const card = document.createElement('div'); card.className = 'setup-card';
     const title = document.createElement('strong'); const p = document.createElement('p'); const actions = document.createElement('div'); actions.className = 'setup-actions';
-    if (!config.configured) {
-      title.textContent = `${config.label || config.month}は、まだ用意していません`;
-      p.textContent = '「この月を用意する」を押して締切を入れると、店舗の「対象月」にもこの月が出ます。そのあと、この月の商品を入れます。';
-      actions.append(makeButton('この月を用意する', () => openSettings(config.month), 'button button-primary setup-prepare'));
-    } else {
-      title.textContent = `${config.label || config.month}の商品は、まだありません`;
-      p.textContent = '前の月と同じ商品を入れるときは「前の月の商品をこの月にも入れる」を押します（在庫量は写りません）。選んで入れるときは「商品マスター」で「この月に追加」を押します。';
-      const copy = makeButton('前の月の商品をこの月にも入れる', () => copyPreviousMonth(copy), 'button button-primary setup-copy');
-      actions.append(copy, makeButton('商品マスター', () => openProductManager(), 'button button-secondary'));
-    }
+    title.textContent = `${config.label || config.month}の商品は、まだありません`;
+    p.textContent = '前の月と同じ商品を入れるときは「前の月の商品をこの月にも入れる」を押します（在庫数は写りません。入れた後に「在庫数」を入れると、店が注文できます）。選んで入れるときは「商品マスター」で「この月に追加」を押します。';
+    const copy = makeButton('前の月の商品をこの月にも入れる', () => copyPreviousMonth(copy), 'button button-primary setup-copy');
+    actions.append(copy, makeButton('商品マスター', () => openProductManager(), 'button button-secondary'));
     card.append(title, p, actions); host.append(card);
   }
   function emptyState(title, description) { return `<div class="empty-state"><div><strong>${esc(title)}</strong><p>${esc(description)}</p></div></div>`; }
@@ -651,7 +739,7 @@
   const RETRY_MS = 5000;
   const pkey = (date, productId, storeId) => [date, productId, storeId].join('\u001f');
   const auto = { timer: 0, retry: 0, soft: 0, queue: Promise.resolve(), inflight: 0, lastSavedAt: null, savedMarks: new Map(), capSaved: new Map() };
-  function pendingCount() { return state.pending.size + state.capPending.size; } // 保存できていない欄（注文と在庫量）
+  function pendingCount() { return state.pending.size + state.capPending.size; } // 保存できていない欄（注文と在庫数）
   function pendingChanges() {
     if (!state.pending.size || !state.data) return null;
     return { month: state.data.month?.month, changes: [...state.pending.values()].map((c) => ({ date: c.date, productId: c.productId, storeId: c.storeId, quantity: c.quantity })) };
@@ -664,9 +752,9 @@
   /** その欄に書けるか（画面の表と同じ決まり。書けるかの最後の判断は GAS） */
   function cellEditable(row, storeId) {
     const data = state.data; if (!data || !row || row.inMonth === false) return false;
-    const config = data.month || {}; const role = data.principal?.role;
+    const role = data.principal?.role;
     if (role === 'BY' || role === 'WAREHOUSE') return (data.stores || []).some((st) => String(st.id) === String(storeId)); // BY と倉庫は、確定の後も直せる（PO 2026-10-28）
-    if (role === 'STORE') { if (String(storeId) !== String(data.principal.storeId) || !config.deadline) return false; const st = OB ? OB.rowStatus(row, config, productOf(row.productId)) : null; return st ? !st.locked : (!config.confirmed && !row.soldOut); }
+    if (role === 'STORE') { if (String(storeId) !== String(data.principal.storeId) || !OB) return false; return !OB.rowStatus(row, productOf(row.productId)).locked; } // 締切・在庫数の入力待ち・SOLD OUT・BY の確定待ち
     return false;
   }
   /** 保存できていない入力を戻す（ログインし直した後・下書き）。書けない欄は戻さない。戻したら自動で送る */
@@ -733,7 +821,7 @@
     const input = event.currentTarget; const { date, product, store: storeId } = input.dataset; const key = pkey(date, product, storeId);
     const value = input.value === '' ? null : Number(input.value);
     updateWeekTotal(input);
-    if (state.data?.principal?.role === 'STORE') { const row0 = findRow(date, product); const st0 = OB && row0 ? OB.rowStatus(row0, state.data.month || {}, productOf(product)) : null; if (st0 && st0.code === 'soldout') { state.pending.set(key, { date, productId: product, storeId, quantity: value, status: 'error', reason: 'SOLD OUT になりました（在庫がありません）', invalid: true }); markCell(key); renderIndicator(); return; } } // 開いている間に SOLD OUT になった欄
+    if (state.data?.principal?.role === 'STORE') { const row0 = findRow(date, product); const st0 = OB && row0 ? OB.rowStatus(row0, productOf(product)) : null; if (st0 && (st0.code === 'soldout' || st0.code === 'aggsold' || st0.code === 'nostock')) { state.pending.set(key, { date, productId: product, storeId, quantity: value, status: 'error', reason: st0.code === 'nostock' ? '在庫数の入力待ちになりました（入れられません）' : 'SOLD OUT になりました（在庫がありません）', invalid: true }); markCell(key); renderIndicator(); return; } } // 開いている間に SOLD OUT・在庫数の入力待ちになった欄
     if (value !== null && (!Number.isInteger(value) || value < 0 || value > 99999)) { // 送らない・数は消さない
       state.pending.set(key, { date, productId: product, storeId, quantity: value, status: 'error', reason: '0以上の整数で入れてください', invalid: true });
       markCell(key); renderIndicator(); return;
@@ -769,8 +857,8 @@
   /** 断られた理由を、その欄で分かる言葉に */
   function reasonOf(error) {
     const m = String(error && error.message || '');
+    if (/在庫数の入力待ち|締切が未設定|SOLD OUT|で締め切りました/.test(m)) return m.replace(/。$/, ''); // GAS の言葉のまま（日・時刻・商品が入っている）
     if (/締切後|締切を過ぎ|確定/.test(m)) return '締切を過ぎたので直せません（直すときは畜産BYへ）';
-    if (/締切がまだ/.test(m)) return '締切がまだ決まっていないので、入れられません';
     const cap = /あと注文できる数は (\d+) ケース/.exec(m); if (cap) return `在庫を超えます。残りは ${cap[1]} ケースです`;
     if (/日付・商品・店舗/.test(m)) return 'この欄には入れられません（画面を読み込み直してください）';
     if (/0以上の整数/.test(m)) return '0以上の整数で入れてください';
@@ -792,7 +880,7 @@
         job.changes.forEach((c) => settle(c, (now) => { Object.assign(now, { status: 'error', network: true, reason: '通信できませんでした（入力を続けると、自動でもう一度送ります）' }); markCell(c.key); }));
         window.clearTimeout(auto.retry); auto.retry = window.setTimeout(flushNow, RETRY_MS); return;
       }
-      // 断られた（締切・在庫量・欄の誤り）。2つ以上なら1つずつ送り直して、どの欄かを分ける（ほかの欄は保存される）
+      // 断られた（締切・在庫数・欄の誤り）。2つ以上なら1つずつ送り直して、どの欄かを分ける（ほかの欄は保存される）
       if (job.changes.length > 1) {
         for (const c of job.changes) {
           const now = state.pending.get(c.key); if (!now || now.status !== 'saving' || now.rid !== job.requestId) continue;
@@ -830,16 +918,24 @@
     let changed = false;
     Object.keys(r.products || {}).forEach((pid) => {
       const x = r.products[pid];
+      const missing = x.cap !== undefined ? x.cap == null : Boolean(x.stockMissing); // 在庫数が未入力（店は注文できない）
       (data.weeks || []).forEach((w) => (w.rows || []).forEach((row) => {
         if (String(row.productId) !== pid || row.inMonth === false) return;
         const so = Boolean(x.soldOutFrom && row.date >= x.soldOutFrom);
-        if (row.remaining !== x.remaining || Boolean(row.soldOut) !== so) { if (row.remaining !== x.remaining) remain.changed.set(pid, Date.now() + 8000); row.remaining = x.remaining; row.soldOut = so; changed = true; }
+        if (row.remaining !== x.remaining || Boolean(row.soldOut) !== so || Boolean(row.stockMissing) !== missing) { if (row.remaining !== x.remaining) remain.changed.set(pid, Date.now() + 8000); row.remaining = x.remaining; row.soldOut = so; row.stockMissing = missing; changed = true; }
       }));
       if (x.cap !== undefined) { data.caps = data.caps || {}; const before = data.caps[pid] == null ? null : Number(data.caps[pid]); if (before !== x.cap) { if (x.cap == null) delete data.caps[pid]; else data.caps[pid] = x.cap; changed = true; } }
+      if (x.total !== undefined && data.allTotals) { if ((Number(data.allTotals[pid]) || 0) !== x.total) { data.allTotals[pid] = x.total; changed = true; } }
     });
     if (r.capsInfo) { if (JSON.stringify(r.capsInfo) !== JSON.stringify(data.capsInfo || {})) changed = true; data.capsInfo = r.capsInfo; }
+    if (r.agg) { // 集約発注の BY の確定（ほかの人が押した分も、1分ごとに見える）
+      (data.weeks || []).forEach((w) => (w.rows || []).forEach((row) => {
+        if (!row.agg) return; const now = r.agg[row.date + '|' + row.productId] || { confirmed: false };
+        if (Boolean(row.agg.confirmed) !== Boolean(now.confirmed) || (now.at && row.agg.at !== now.at)) { row.agg = now; changed = true; }
+      }));
+    }
     setRemainAt(r.computedLabel ? r.computedLabel.split(' ')[1] : nowLabel());
-    if (changed) { if (typing()) remain.redraw = true; else renderOrders(); } // 打っている間は作り直さない
+    if (changed) { renderLeadWarning(data); if (typing()) remain.redraw = true; else renderOrders(); } // 打っている間は表を作り直さない（上の知らせは入力の欄を持たないので、すぐ直す）
   }
   /** 「更新」: 注文の数まで全部を読み直す。保存中の欄は終わってから。連打しても1回 */
   async function refreshAll() {
@@ -860,7 +956,7 @@
     return pendingCount();
   }
 
-  // ---- 在庫量の自動保存（注文と同じ型＝原則5: 0.7秒・離れたらすぐ・保存の列で1つずつ・欄に 保存中／✓／⚠）
+  // ---- 在庫数の自動保存（注文と同じ型＝原則5: 0.7秒・離れたらすぐ・保存の列で1つずつ・欄に 保存中／✓／⚠）
   //   後に直した方が残る（last-write-wins）。保存の後、だれも打っていないときに読み直す（相手の直しが見える）
   function capCellClass(pid) { const c = state.capPending.get(pid); if (c) return c.status === 'error' ? 'is-error' : 'is-saving'; return auto.capSaved.has(pid) ? 'is-saved' : ''; }
   function capStateMarkup(pid) {
@@ -876,7 +972,7 @@
   }
   function onCapType(event) {
     const input = event.currentTarget; const pid = String(input.dataset.product); const value = input.value === '' ? null : Number(input.value);
-    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 999999)) { state.capPending.set(pid, { productId: pid, quantity: value, status: 'error', reason: '0以上の整数で入れてください（空欄は制限なし）', invalid: true }); markCapCell(pid); renderIndicator(); return; }
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 999999)) { state.capPending.set(pid, { productId: pid, quantity: value, status: 'error', reason: '0以上の整数で入れてください（空欄は未入力＝店は注文できません）', invalid: true }); markCapCell(pid); renderIndicator(); return; }
     const saved = state.data?.caps?.[pid]; const was = state.capPending.get(pid);
     if ((value == null ? null : value) === (saved == null ? null : Number(saved)) && !(was && was.status === 'saving')) { state.capPending.delete(pid); markCapCell(pid); renderIndicator(); return; }
     state.capPending.set(pid, { productId: pid, quantity: value, status: 'dirty' }); markCapCell(pid); renderIndicator(); scheduleFlush(SAVE_DELAY_MS);
@@ -904,11 +1000,11 @@
     }
   }
 
-  // ------------------------------------------------------------ 印刷の上の1行（印刷した日時・この時点の状態）
+  // ------------------------------------------------------------ 印刷の上の1行（印刷した日時・だれが。確定は行ごとの印）
   function fillPrintHead() {
     const node = $('#print-head'); const data = state.data; if (!node || !data) return;
     const config = data.month || {}; const who = data.principal || {};
-    node.textContent = `畜産 発注書　${config.label || ''}　印刷: ${OB ? OB.stamp(new Date()) : new Date().toLocaleString('ja-JP')}　${who.shortLabel || who.label || ''}（${who.roleLabel || ''}）　この時点の状態: ${OB ? OB.monthStatusText(config) : (config.statusLabel || '')}${pendingCount() ? '　（保存できていない欄は、印刷に入っていません）' : ''}`;
+    node.textContent = `畜産 発注書　${config.label || ''}　印刷: ${OB ? OB.stamp(new Date()) : new Date().toLocaleString('ja-JP')}　${who.shortLabel || who.label || ''}（${who.roleLabel || ''}）　確定は行ごと（集約発注は BY の確定）${pendingCount() ? '　（保存できていない欄は、印刷に入っていません）' : ''}`;
   }
 
   // ------------------------------------------------------------ Excel でダウンロード（倉庫と BY・押せる人は GAS も確かめる）
@@ -933,18 +1029,28 @@
   }
 
   // ------------------------------------------------------------ BY の画面
-  function openSettings(forMonth) {
-    const c = forMonth && forMonth !== state.data?.month?.month ? { month: forMonth } : (state.data?.month || {});
-    const localDeadline = c.deadline ? new Date(new Date(c.deadline).getTime() - new Date(c.deadline).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
-    showModal('月度設定', `<label>対象月<input name="month" type="month" value="${esc(c.month || '')}" required></label><label>受注締切の日時<input name="deadline" type="datetime-local" value="${esc(localDeadline)}"></label><p class="form-note">締切を後ろへ延ばすと、確定が外れて店舗がまた入れられます。空にすると「締切未設定」になり、店舗は入れられません。在庫量は「月間合計」で、BY と倉庫がいつでも直せます。</p>`, async (form) => {
-      const month = form.elements.month.value; if (!month) throw new Error('対象月を入れてください。');
-      const deadline = form.elements.deadline.value ? new Date(form.elements.deadline.value).toISOString() : '';
-      const res = await api('saveMonthConfig', { month, deadline, requestId: requestId() });
-      await refreshWorkspace(month); toast(res?.message || '月度設定を保存しました。');
-    });
+  /**
+   * 集約発注の「確定する」「確定を取り消す」（BY だけ・GAS も役割を確かめる）。商品×着く日ごと（PO 決定 2026-10-29）。
+   *   先に保存の列を空にしてから送る（振り分けた数を保存してから確定）。同じ操作番号で1回だけ（押し直し・再送で二重にならない）。
+   *   取り消しは確かめの画面を出す（倉庫の画面の「BY 確定」が消えるため）
+   */
+  async function setAggConfirm(button, key, confirm) {
+    if (!button || button.disabled || !state.data) return;
+    const [date, productId] = String(key).split('|'); const product = productOf(productId) || {};
+    if (!confirm && !window.confirm(`${md(date)} 着「${product.name || ''}」の確定を取り消します。倉庫の画面は「BY の確定待ち」に戻ります。よろしいですか？`)) return;
+    const done = busyButton(button, confirm ? '確定しています…' : '取り消しています…'); const t0 = performance.now();
+    try {
+      if (await settleSaves()) { done(); toast('保存できていない欄（⚠）があります。直して保存されてから、確定してください。', true); return; }
+      const res = await api('confirmAggregate', { month: state.data.month.month, date, productId, confirm, requestId: requestId() });
+      const row = findRow(date, productId); if (row) row.agg = res.confirmed ? { confirmed: true, at: res.at || '', who: '畜産BY' } : { confirmed: false };
+      perfNote(confirm ? 'aggConfirm' : 'aggUndo', t0); done();
+      renderLeadWarning(state.data); renderOrders(); toast(res?.message || (confirm ? '確定しました。' : '確定を取り消しました。'));
+    } catch (error) {
+      done(); if (error.code === 'SESSION') showLoginPanel(error.message, 'info'); else toast(error.message, true);
+    }
   }
 
-  /** 「前の月の商品をこの月にも入れる」（BY・1回押すだけ）。すでに入っている商品はそのまま・在庫量は写さない（GAS が決める） */
+  /** 「前の月の商品をこの月にも入れる」（BY・1回押すだけ）。すでに入っている商品はそのまま・在庫数は写さない（GAS が決める） */
   async function copyPreviousMonth(button) {
     const month = state.data?.month?.month; if (!month || (button && button.disabled)) return false;
     const done = busyButton(button, '入れています…');
@@ -976,6 +1082,7 @@
         const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'product-manager-item';
         const name = document.createElement('strong'); name.textContent = product.name || '';
         const meta = document.createElement('small'); meta.textContent = [product.manufacturer, product.specification, product.jan].filter(Boolean).join('　');
+        if (OB && OB.isAggregate(product)) { const badge = document.createElement('span'); badge.className = 'agg-badge'; badge.textContent = '集約'; edit.append(badge); row.classList.add('is-aggregate'); }
         edit.append(name, meta);
         if (OB && OB.leadDaysOf(product.leadDays) === null) { const mark = document.createElement('span'); mark.className = 'nolead-mark'; mark.textContent = '締切が未設定'; edit.append(mark); }
         const gap = PS ? PS.missingFields(product) : [];
@@ -1033,6 +1140,7 @@
 
   function sheetValue(key, value) {
     if (key === 'aliases') return Array.isArray(value) && value.length ? value.join('、') : '（空）';
+    if (key === 'orderType') return PS.ORDER_TYPE_LABEL[PS.orderTypeKey(value) || 'normal'] || String(value); // 空は通常発注
     if (value === '' || value == null) return '（空）';
     if (key === 'marginRate') { const n = Number(value); return `${value}（${Math.round((Math.abs(n) <= 1 ? n * 100 : n) * 10) / 10}%）`; }
     if (typeof value === 'number' && key !== 'jan') return value.toLocaleString('ja-JP', { maximumFractionDigits: 4 });
@@ -1046,12 +1154,14 @@
     if (line.status === 'error') detail = `<ul class="sheet-reasons">${line.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`;
     else if (line.status === 'update') detail = `<ul class="sheet-changes">${line.changes.map((ch) => `<li><b>${esc(ch.label)}</b> ${esc(sheetValue(ch.key, ch.before))} → <strong>${esc(sheetValue(ch.key, ch.after))}</strong>${ch.computed ? '<small>（計算）</small>' : ''}</li>`).join('')}</ul>`;
     else if (line.status === 'new') {
-      const parts = ['packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate', 'aliases', 'leadDays'].filter((k) => (k === 'aliases' ? (it.aliases || []).length : it[k] !== '' && it[k] != null))
+      const parts = ['packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate', 'aliases', 'leadDays', 'orderType'].filter((k) => (k === 'aliases' ? (it.aliases || []).length : it[k] !== '' && it[k] != null))
         .map((k) => `<li><b>${esc(PS.LABEL[k])}</b> ${esc(sheetValue(k, it[k]))}${line.computed.includes(k) ? '<small>（計算）</small>' : ''}</li>`);
       detail = parts.length ? `<ul class="sheet-changes">${parts.join('')}</ul>` : '商品名だけ';
     }
     const gap = line.missing && line.missing.length ? `<p class="sheet-missing">空の項目あり（${esc(PS.missingLabel(line.missing))}）。登録はできます。あとで埋めてください</p>` : '';
-    return `<tr class="sheet-line is-${line.status}${gap ? ' has-missing' : ''}"><td class="sheet-at">${esc(line.at)}</td><td><span class="sheet-badge is-${line.status}">${SHEET_STATUS[line.status]}</span></td><td class="sheet-product"><strong>${esc(it.name || '（商品名なし）')}</strong>${meta ? `<small>${esc(meta)}</small>` : ''}</td><td class="sheet-detail">${detail}${gap}</td></tr>`;
+    const notes = (line.notes || []).map((n) => `<p class="sheet-missing">${esc(n)}</p>`).join(''); // 黄色の注意（発注区分が空→通常発注 など）
+    const agg = PS.orderTypeKey(it.orderType) === 'aggregate';
+    return `<tr class="sheet-line is-${line.status}${gap || notes ? ' has-missing' : ''}"><td class="sheet-at">${esc(line.at)}</td><td><span class="sheet-badge is-${line.status}">${SHEET_STATUS[line.status]}</span></td><td class="sheet-product">${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(it.name || '（商品名なし）')}</strong>${meta ? `<small>${esc(meta)}</small>` : ''}</td><td class="sheet-detail">${detail}${gap}${notes}</td></tr>`;
   }
 
   function renderSheetView(notes = []) {
@@ -1114,7 +1224,7 @@
       const result = await api('getAuditLog', { limit: 30 });
       const list = root.querySelector('.audit-list'); if (!list) return;
       const entries = result.entries || [];
-      const actionNames = { startSession: 'ログイン', getWorkspace: '発注一覧を表示', getGuide: '利用ガイドを表示', saveOrderBatch: '注文を保存（自動）', setProductCap: '在庫量を保存', saveProduct: '商品を保存', saveProductsBatch: '登録用紙で商品を登録', exportOrders: 'Excel でダウンロード', setMonthProduct: 'この月の商品を変更', copyMonthProducts: '前の月の商品を写す', saveMonthConfig: '月度設定を保存', confirmMonth: '締切後に確定', endSession: 'ログアウト', getAuditLog: '操作履歴を表示', unknown: '一覧に無い操作' };
+      const actionNames = { startSession: 'ログイン', getWorkspace: '発注一覧を表示', getGuide: '利用ガイドを表示', saveOrderBatch: '注文を保存（自動）', setProductCap: '在庫数を保存', saveProduct: '商品を保存', saveProductsBatch: '登録用紙で商品を登録', exportOrders: 'Excel でダウンロード', setMonthProduct: 'この月の商品を変更', copyMonthProducts: '前の月の商品を写す', confirmAggregate: '集約発注を確定', unconfirmAggregate: '集約発注の確定を取り消し', saveMonthConfig: '月度設定を保存（0.2.4 まで）', confirmMonth: '締切後に確定（0.2.4 まで）', endSession: 'ログアウト', getAuditLog: '操作履歴を表示', unknown: '一覧に無い操作' };
       const roleNames = { BY: '畜産BY', STORE: '店舗', WAREHOUSE: '倉庫', SYSTEM: '自動処理' };
       list.innerHTML = entries.length ? entries.map((entry) => {
         const time = entry.at ? new Date(entry.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '';
@@ -1126,7 +1236,7 @@
     }
   }
 
-  const EDITOR_KEYS = ['manufacturer', 'name', 'specification', 'jan', 'packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate', 'leadDays'];
+  const EDITOR_KEYS = ['manufacturer', 'name', 'specification', 'jan', 'packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate', 'leadDays', 'orderType'];
   function openProductEditor(existing = {}) {
     const aliases = Array.isArray(existing.aliases) ? existing.aliases.join('、') : '';
     const v = (x) => esc(x === undefined || x === null ? '' : x);
@@ -1145,7 +1255,9 @@
       + `<label>検索用の読み・別名<input name="aliases" placeholder="例：ぶたばら、豚三枚肉" value="${esc(aliases)}"></label>`
       + `<div class="form-grid"><div>${field('原価（本体）', 'costNet', 'type="number" min="0" step="0.01"')}</div><div>${field('原価（税込・総額）', 'costGross', 'type="number" min="0" step="0.01"')}</div><div>${field('売価（本体）', 'priceNet', 'type="number" min="0" step="0.01"')}</div><div>${field('売価（税込・総額）', 'priceGross', 'type="number" min="0" step="0.01"')}</div><div>${field('値入率（0.29 か 29）', 'marginRate', 'type="number" min="0" step="any"')}</div></div>`
       + field('締切（何日前）', 'leadDays', 'type="number" min="0" max="30" step="1" inputmode="numeric" placeholder="例 2"', must)
-      + `<p class="form-note">着く日の何日前の 12:00 で、店の注文を締め切るか（0〜30）。例 2 なら、11/1 着は 10/30 12:00 まで店が直せます。</p><p class="form-note calc-note">税込（総額）は、本体を入れると自動で入ります（本体×1.08 の端数切り捨て）。値入率も、空なら（売価−原価）÷売価 で入ります。手で直した数は、そのままです。</p>`;
+      + `<p class="form-note">着く日の何日前の 12:00 で、店の注文を締め切るか（0〜30）。例 2 なら、11/1 着は 10/30 12:00 まで店が直せます。</p>`
+      + `<label><span class="field-label">発注区分${must}</span><select name="orderType"><option value="normal"${OB && OB.isAggregate(existing) ? '' : ' selected'}>通常発注</option><option value="aggregate"${OB && OB.isAggregate(existing) ? ' selected' : ''}>集約発注</option></select></label>${note('orderType')}`
+      + `<p class="form-note">集約発注＝BY が集めて振り分ける商品。締切の後、BY が「確定する」を押すまで確定しません（画面では薄い紫の地と「集約」の印）。</p><p class="form-note calc-note">税込（総額）は、本体を入れると自動で入ります（本体×1.08 の端数切り捨て）。値入率も、空なら（売価−原価）÷売価 で入ります。手で直した数は、そのままです。</p>`;
     showModal(isNew ? '商品を追加' : '商品を直す', fields, async (form) => {
       const bad = checkEditor(form, true);
       if (bad) { bad.focus(); throw new Error('赤い字の欄を直してください（理由は欄の下）。'); }
@@ -1296,8 +1408,30 @@
     host.addEventListener('input', (e) => { const t = e.target; if (!isInput(t)) return; if (t.matches('[data-order-input]')) onOrderType({ currentTarget: t }); else onCapType({ currentTarget: t }); }, true);
     host.addEventListener('change', (e) => { if (isInput(e.target)) flushNow(); }, true);
     host.addEventListener('blur', (e) => { if (isInput(e.target)) flushNow(); }, true);
-    host.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.week-tab'); if (b && host.contains(b)) switchWeek(b); });
+    host.addEventListener('click', (e) => {
+      const t = e.target.closest ? e.target : null; if (!t) return;
+      const b = t.closest('.week-tab'); if (b && host.contains(b)) { switchWeek(b); return; }
+      const ok = t.closest('[data-agg-confirm]'); if (ok && host.contains(ok)) { setAggConfirm(ok, ok.dataset.aggConfirm, true); return; }
+      const undo = t.closest('[data-agg-undo]'); if (undo && host.contains(undo)) setAggConfirm(undo, undo.dataset.aggUndo, false);
+    });
   })();
+  /** 週のタブを押したとき: 週の表（.week-card）だけを描き直す（在庫数の表と週のタブはそのまま＝画面を全部作り直さない）。形が合わないときは全部を描く */
+  function renderWeekOnly() {
+    const t0 = performance.now();
+    try {
+      const data = state.data; const host = $('#order-content'); const old = host && host.querySelector(':scope > .week-card');
+      const weeks = Array.isArray(data?.weeks) ? data.weeks : []; const products = filteredProducts(data?.products || []);
+      if (!old || state.view === 'month' || !weeks.length || !products.length) { renderOrdersNow(); return; }
+      const week = weeks[currentWeekIndex(weeks)]; const isStore = data.principal?.role === 'STORE';
+      state.weekKey = weekKeyOf(week); host.dataset.week = state.weekKey;
+      const tpl = document.createElement('template');
+      tpl.innerHTML = isStore ? renderStoreWeek(week, data, products, data.month || {}) : renderWeek(week, data, products, data.month || {}, { bands: true });
+      old.replaceWith(tpl.content);
+      host.querySelectorAll('.week-tab.is-loading').forEach((x) => x.classList.remove('is-loading'));
+      const card = host.querySelector(':scope > .week-card'); setTheadHeights(card); markWeekTabs();
+      const box = card.querySelector('.table-scroll'); if (isStore && box) scrollToFirstOpenDay(box);
+    } finally { perfNote('render:orders', t0); }
+  }
   /** 週のタブ: 押したタブをすぐ選んだ形にして（印つき）、次の描画で表を描く（押した反応を先に返す） */
   function switchWeek(b) {
     if (b.classList.contains('is-active')) return;
@@ -1305,7 +1439,7 @@
     document.querySelectorAll('#order-content .week-tab').forEach((x) => { const on = x === b; x.classList.toggle('is-active', on); x.setAttribute('aria-selected', String(on)); });
     b.classList.add('is-loading');
     let ran = false;
-    const go = () => { if (ran) return; ran = true; renderOrders(); perfNote('week', t0); const again = document.querySelector(`.week-tab[data-week="${CSS.escape(key)}"]`); if (again) again.focus(); };
+    const go = () => { if (ran) return; ran = true; renderWeekOnly(); perfNote('week', t0); const again = document.querySelector(`.week-tab[data-week="${CSS.escape(key)}"]`); if (again) again.focus(); };
     window.requestAnimationFrame(() => window.setTimeout(go, 0)); window.setTimeout(go, 60); // 見えていない画面では描画の合図が来ないので、時間でも描く
   }
   $('#print-button').addEventListener('click', async () => { if (await settleSaves()) { toast('保存できていない欄（⚠）があります。直して保存されてから、印刷してください。', true); return; } window.print(); });
