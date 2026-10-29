@@ -460,7 +460,7 @@
       const shortage = cap != null && total > Number(cap) ? total - Number(cap) : 0; if (cap == null) missing++; if (shortage) short++;
       const by = info[pid] && info[pid].who ? `${info[pid].who} ${info[pid].at}` : '';
       const agg = OB && OB.isAggregate(p);
-      return `<tr class="${agg ? 'is-aggregate' : ''} ${cap == null ? 'is-stock-missing' : ''}"><td class="stock-product">${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name || '')}</strong><small>${esc(p.manufacturer || '')}　${esc(p.specification || '')}</small></td><td class="stock-total">${total || '—'}</td><td class="cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(pid)}"><input class="cap-input" data-cap-input data-product="${esc(pid)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(pid)}</td><td class="stock-rest">${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="stock-short ${shortage ? 'cap-short' : ''}">${shortage ? `不足 ${esc(shortage)}` : '—'}</td></tr>`;
+      return `<tr class="${agg ? 'is-aggregate' : ''} ${cap == null ? 'is-stock-missing' : ''}"><td class="stock-product">${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name || '')}</strong><small>${esc(p.manufacturer || '')}　${esc(p.specification || '')}</small></td><td class="stock-total">${total || '—'}</td><td class="cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(pid)}"><input class="cap-input" data-cap-input data-product="${esc(pid)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(pid)}</td><td class="stock-rest is-${stockFigures(pid, data).level}" data-card-rest="${esc(pid)}">${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="stock-short ${shortage ? 'cap-short' : ''}" data-card-short="${esc(pid)}">${shortage ? `不足 ${esc(shortage)}` : '—'}</td></tr>`;
     }).join('');
     const counts = [missing ? `<b class="stock-count is-missing">未入力 ${missing} 件</b>` : '', short ? `<b class="stock-count is-short">不足 ${short} 件</b>` : ''].filter(Boolean).join('');
     const open = state.stockOpen !== false;
@@ -613,6 +613,42 @@
   }
   function legendLine() { return OB ? `<p class="status-legend">${esc(OB.LEGEND)}</p>` : ''; }
 
+  // ---- BY・倉庫: 注文の合計と在庫数の幅（PO 2026-10-29「表に在庫情報が見えない。店舗の合計数との幅が読めない」）
+  //   どちらの表でも、商品の行のすぐ横（左に固定＝横に動かしても見える所）に「注文の合計（月）・在庫数・残り」。色だけにせず、言葉も付ける
+  const LOW_STOCK_RATE = 0.1; // 物差し: 残りが在庫数の1割以下＝少ない（黄）
+  const STOCK_RULE = '赤＝残りが 0 以下（「不足 n」＝注文が在庫数より n 多い）・黄＝残りが在庫数の1割以下（「少ない」）・「未入力」＝在庫数が空（店は注文できません）';
+  const showsStock = (data) => ['BY', 'WAREHOUSE'].includes(data?.principal?.role);
+  /** 商品の、月の全店の注文の合計・在庫数（打っている途中の数も）・残り（在庫数 − 注文）・物差しの段（missing／short／low／ok） */
+  function stockFigures(pid, data) {
+    pid = String(pid); const total = Number(data?.allTotals?.[pid]) || 0;
+    const pend = state.capPending.get(pid); const raw = pend && !pend.invalid ? pend.quantity : data?.caps?.[pid];
+    const cap = raw == null || raw === '' ? null : Number(raw); const rest = cap == null ? null : cap - total;
+    const level = cap == null ? 'missing' : rest <= 0 ? 'short' : rest <= cap * LOW_STOCK_RATE ? 'low' : 'ok';
+    return { total, cap, rest, level };
+  }
+  function restText(f, unit) {
+    if (f.level === 'missing') return '—';
+    if (f.rest < 0) return `不足 ${-f.rest}${unit ? ' ケース' : ''}`;
+    if (f.rest === 0) return '0（残りなし）';
+    return f.level === 'low' ? `${f.rest}（少ない）` : String(f.rest);
+  }
+  /** 週ごとの表の商品の欄（左に固定）の1行「注文 7 ／ 在庫 40 ／ 残り 33」。月間合計の表では、狭い画面だけ（広い画面は左に固定の列） */
+  function stockStrip(pid, data) {
+    const f = stockFigures(pid, data);
+    // 言葉と数は離さない（折り返しは「／」の所だけ）
+    const tail = f.level === 'missing' ? '<span>在庫 <b>未入力</b></span><span>（店は注文できません）</span>' : `<span>在庫 <b>${esc(f.cap)}</b></span> ／ <span>${f.rest < 0 ? `<b>不足 ${esc(-f.rest)}</b>` : `残り <b>${esc(restText(f))}</b>`}</span>`;
+    return `<span class="stock-strip is-${f.level}" data-stock-strip="${esc(pid)}"><span>注文 <b>${esc(f.total)}</b></span> ／ ${tail}</span>`;
+  }
+  function stockRuleLine(where) { return `<p class="stock-rule">${esc(where)}${esc(STOCK_RULE)}</p>`; }
+  /** 在庫数を打っている間・保存の後: 「注文 ／ 在庫 ／ 残り」・月間合計の「残り」・上の表の「残り」「不足」を、その場で直す（表は作り直さない） */
+  function refreshStockFigures(pid) {
+    const data = state.data; if (!data || !showsStock(data)) return; const sel = CSS.escape(String(pid)); const f = stockFigures(pid, data);
+    document.querySelectorAll(`[data-stock-strip="${sel}"]`).forEach((n) => { n.outerHTML = stockStrip(pid, data); });
+    document.querySelectorAll(`[data-stock-rest="${sel}"]`).forEach((td) => { td.className = `col-rest rest-cell is-${f.level}`; td.textContent = restText(f, true); });
+    document.querySelectorAll(`[data-card-rest="${sel}"]`).forEach((td) => { td.className = `stock-rest is-${f.level}`; td.textContent = f.cap == null ? '—' : String(Math.max(0, f.rest)); });
+    document.querySelectorAll(`[data-card-short="${sel}"]`).forEach((td) => { const s = f.rest != null && f.rest < 0 ? -f.rest : 0; td.className = `stock-short ${s ? 'cap-short' : ''}`; td.textContent = s ? `不足 ${s}` : '—'; });
+  }
+
   /**
    * BY・倉庫の表（と、全部の役割の印刷）: 縦に日付×商品・横に店。
    *   opts.bands: 日ごとに、表の幅いっぱいの日付の帯（土は青・日は赤の文字・今日の印）・日の間に太い線・日ごとに交互の薄い地。帯は縦に動かしても見出しの下に残る（日ごとの tbody の中で止まる）
@@ -623,7 +659,7 @@
     const productIds = new Set(products.map((p) => String(p.id)));
     const byId = new Map((data.products || []).map((p) => [String(p.id), p]));
     const rows = (week.rows || []).filter((row) => productIds.has(String(row.productId)));
-    const today = todayKey(); const ncols = stores.length + 4;
+    const today = todayKey(); const ncols = stores.length + 4; const stock = showsStock(data);
     const rowHtml = (row) => {
       const product = byId.get(String(row.productId)) || {};
       const soldOut = Boolean(row.soldOut);
@@ -642,8 +678,10 @@
       }).join('');
       const st = OB && row.inMonth !== false ? OB.rowStatus(row, product, opts.nowMs) : null; const rs = st ? st.code : '';
       const agg = OB && OB.isAggregate(product); const noLead = OB && OB.leadDaysOf(product.leadDays) === null;
-      const note = noLead ? '<small class="nolead-note">締切が未設定（店は入れられません）</small>' : row.inMonth !== false && row.stockMissing ? '<small class="nostock-note">在庫数が未入力（店は入れられません）</small>' : (!soldOut && row.inMonth !== false ? capHint(row.productId, row.remaining) : '');
-      return `<tr class="${soldOut ? 'soldout-row' : ''} ${row.inMonth === false ? 'outside-month-row' : ''} ${rs ? 'status-' + rs : ''} ${agg ? 'is-aggregate' : ''}" ${agg ? `data-agg-row="${esc(row.date + '|' + row.productId)}"` : ''}><td class="col-date">${esc(row.dateLabel || row.date)}${soldOut ? '<br><span class="sold-out">SOLD OUT</span>' : ''}${statusMark(st)}</td><td class="col-maker">${esc(product.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(product.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(product.name || '')}</strong><small>${esc(product.specification || '')}　${esc(product.jan || '')}</small>${productDetailsMarkup(product)}${aggControl(row, product, st, opts)}${note}</td>${cells}<td class="total-cell">${total || '—'}</td></tr>`;
+      // BY・倉庫は「注文 ／ 在庫 ／ 残り」の1行（在庫数が空・不足もそこに出す）。店は、今までどおり「あと n ケース」
+      const strip = stock && row.inMonth !== false ? stockStrip(row.productId, data) : '';
+      const note = noLead ? '<small class="nolead-note">締切が未設定（店は入れられません）</small>' : stock ? '' : row.inMonth !== false && row.stockMissing ? '<small class="nostock-note">在庫数が未入力（店は入れられません）</small>' : (!soldOut && row.inMonth !== false ? capHint(row.productId, row.remaining) : '');
+      return `<tr class="${soldOut ? 'soldout-row' : ''} ${row.inMonth === false ? 'outside-month-row' : ''} ${rs ? 'status-' + rs : ''} ${agg ? 'is-aggregate' : ''}" ${agg ? `data-agg-row="${esc(row.date + '|' + row.productId)}"` : ''}><td class="col-date">${esc(row.dateLabel || row.date)}${soldOut ? '<br><span class="sold-out">SOLD OUT</span>' : ''}${statusMark(st)}</td><td class="col-maker">${esc(product.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(product.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(product.name || '')}</strong><small>${esc(product.specification || '')}　${esc(product.jan || '')}</small>${strip}${productDetailsMarkup(product)}${aggControl(row, product, st, opts)}${note}</td>${cells}<td class="total-cell">${total || '—'}</td></tr>`;
     };
     let body;
     if (opts.bands) {
@@ -656,10 +694,11 @@
     } else body = `<tbody>${rows.map(rowHtml).join('')}</tbody>`;
     if (!rows.length) body = `<tbody><tr><td colspan="${ncols}">該当する商品がありません。</td></tr></tbody>`;
     const columns = `<th class="col-date">日付</th><th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>合計</th>`;
-    return `<section class="week-card"><div class="week-heading"><h3>${esc(week.label || '週')}</h3><span>${esc(week.startLabel || '')}${week.endLabel ? ` ～ ${esc(week.endLabel)}` : ''}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table ${stores.length === 1 ? 'is-single' : ''} ${opts.bands ? 'has-day-bands' : ''}"><thead><tr>${columns}</tr></thead>${body}</table></div>${legendLine()}</section>`;
+    const rule = stock ? stockRuleLine('商品名の下の「注文 ／ 在庫 ／ 残り」＝その月の全店の注文の合計・在庫数・残り（在庫数 − 注文）。在庫数は上の「在庫数と注文の合計（月）」か「月間合計」で入れます。') : '';
+    return `<section class="week-card"><div class="week-heading"><h3>${esc(week.label || '週')}</h3><span>${esc(week.startLabel || '')}${week.endLabel ? ` ～ ${esc(week.endLabel)}` : ''}　<b class="unit-note">数はケース</b></span></div>${rule}<div class="table-scroll"><table class="order-table ${stores.length === 1 ? 'is-single' : ''} ${opts.bands ? 'has-day-bands' : ''}"><thead><tr>${columns}</tr></thead>${body}</table></div>${legendLine()}</section>`;
   }
 
-  /** 月間合計。BY と倉庫は 在庫数（いつでも直せる・自動保存・空欄は未入力＝店は注文できない）・直した人と時刻・残数・不足。店は残数だけ（在庫数・ほかの店の内訳は出さない） */
+  /** 月間合計。BY と倉庫は、商品のすぐ右に 注文の合計（月）・在庫数（いつでも直せる・自動保存・空欄は未入力＝店は注文できない・直した人と時刻）・残り（不足は赤）。店は残数だけ（在庫数・ほかの店の内訳は出さない） */
   function renderMonthSummary(data, products, config) {
     const stores = data.stores || []; const totals = data.monthTotals || {}; const ownStoreId = data.principal?.storeId;
     if (!products.length) return emptyState('月間合計はありません。', '対象月と商品が決まると、商品・店舗ごとの合計が出ます。');
@@ -667,22 +706,26 @@
     const restOf = (pid) => { for (const w of data.weeks || []) for (const r of w.rows || []) if (String(r.productId) === String(pid) && r.inMonth !== false && r.remaining != null) return r.remaining; return null; };
     const rows = products.map((p) => {
       const total = stores.reduce((sum, s) => sum + (Number(totals[p.id]?.[s.id]) || 0), 0);
-      let tail;
+      const agg = OB && OB.isAggregate(p);
+      const storeCells = stores.map((s) => { const v = Number(totals[p.id]?.[s.id]) || 0; return `<td class="total-cell store-cell ${String(s.id) === String(ownStoreId) ? 'is-own' : ''} ${v ? '' : 'is-empty'}">${v || '—'}</td>`; }).join('');
+      const head = `<td class="col-maker">${esc(p.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(p.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name)}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${canEdit ? stockStrip(p.id, data) : ''}${productDetailsMarkup(p)}</td>`;
       if (canEdit) {
+        // 商品のすぐ右に「注文の合計（月）・在庫数・残り」（広い画面では左に固定＝店の列を横に動かしても見える。狭い画面は商品の欄の1行）
         const cap = data.caps?.[p.id]; const pend = state.capPending.get(String(p.id));
         const value = pend ? (pend.quantity == null ? '' : pend.quantity) : (cap == null ? '' : cap);
         const by = info[p.id] && info[p.id].who ? `${info[p.id].who} ${info[p.id].at}` : '';
-        const shortage = cap != null && total > Number(cap) ? total - Number(cap) : 0;
-        tail = `<td class="cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(String(p.id))}"><input class="cap-input" data-cap-input data-product="${esc(p.id)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(String(p.id))}</td><td>${cap == null ? '—' : esc(Math.max(0, Number(cap) - total))}</td><td class="${shortage ? 'cap-short' : ''}">${shortage ? `不足 ${esc(shortage)} ケース` : '—'}</td>`;
-      } else {
-        const r = restOf(p.id); const missing = (data.weeks || []).some((w) => (w.rows || []).some((x) => String(x.productId) === String(p.id) && x.inMonth !== false && x.stockMissing));
-        tail = `<td>${missing ? '在庫数の入力待ち' : r == null ? '—' : (r <= 0 ? '0（SOLD OUT）' : esc(r))}</td>`;
+        const f = stockFigures(p.id, data);
+        const group = `<td class="col-sum total-cell">${total || '—'}</td><td class="col-cap cap-cell ${cap == null ? 'is-missing' : ''} ${capCellClass(String(p.id))}"><input class="cap-input" data-cap-input data-product="${esc(p.id)}" type="number" inputmode="numeric" min="0" step="1" placeholder="未入力" value="${esc(value)}" aria-label="${esc(p.name)}の在庫数"><small class="cap-who">${cap == null ? '<b class="stock-missing-note">未入力（店は注文できません）</b>' : esc(by)}</small>${capStateMarkup(String(p.id))}</td><td class="col-rest rest-cell is-${f.level}" data-stock-rest="${esc(p.id)}">${esc(restText(f, true))}</td>`;
+        return `<tr class="${agg ? 'is-aggregate' : ''}">${head}${group}${storeCells}</tr>`;
       }
-      const agg = OB && OB.isAggregate(p);
-      return `<tr class="${agg ? 'is-aggregate' : ''}"><td class="col-maker">${esc(p.manufacturer || '')}</td><td class="col-product product-cell"><small class="maker-inline">${esc(p.manufacturer || '')}</small>${agg ? '<span class="agg-badge">集約</span>' : ''}<strong>${esc(p.name)}</strong><small>${esc(p.specification || '')}　${esc(p.jan || '')}</small>${productDetailsMarkup(p)}</td>${stores.map((s) => { const v = Number(totals[p.id]?.[s.id]) || 0; return `<td class="total-cell store-cell ${String(s.id) === String(ownStoreId) ? 'is-own' : ''} ${v ? '' : 'is-empty'}">${v || '—'}</td>`; }).join('')}<td class="total-cell">${total || '—'}</td>${tail}</tr>`;
+      const r = restOf(p.id); const missing = (data.weeks || []).some((w) => (w.rows || []).some((x) => String(x.productId) === String(p.id) && x.inMonth !== false && x.stockMissing));
+      return `<tr class="${agg ? 'is-aggregate' : ''}">${head}${storeCells}<td class="total-cell">${total || '—'}</td><td>${missing ? '在庫数の入力待ち' : r == null ? '—' : (r <= 0 ? '0（SOLD OUT）' : esc(r))}</td></tr>`;
     }).join('');
-    const heads = `<th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>月計</th>${canEdit ? '<th>在庫数</th><th>残数</th><th>不足</th>' : '<th>残数</th>'}`;
-    return `<section class="week-card"><div class="week-heading"><h3>${esc(config.label || '月間合計')}</h3><span>${canEdit ? '在庫数は、入れると自動で保存されます（BY と倉庫がいつでも直せる・空欄は未入力＝店は注文できません）' : '商品ごとの月の合計と残数'}　<b class="unit-note">数はケース</b></span></div><div class="table-scroll"><table class="order-table month-table ${stores.length === 1 ? 'is-single' : ''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    const heads = canEdit
+      ? `<th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th><th class="col-sum">注文の合計（月）</th><th class="col-cap">在庫数</th><th class="col-rest">残り</th>${storeHeads(stores, ownStoreId)}`
+      : `<th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>月計</th><th>残数</th>`;
+    const rule = canEdit ? stockRuleLine('商品のすぐ右の「注文の合計（月）・在庫数・残り」は、店の列を横に動かしても見えます（残り＝在庫数 − 注文）。') : '';
+    return `<section class="week-card"><div class="week-heading"><h3>${esc(config.label || '月間合計')}</h3><span>${canEdit ? '在庫数は、入れると自動で保存されます（BY と倉庫がいつでも直せる・空欄は未入力＝店は注文できません）' : '商品ごとの月の合計と残数'}　<b class="unit-note">数はケース</b></span></div>${rule}<div class="table-scroll"><table class="order-table month-table ${canEdit ? 'has-stock' : ''} ${stores.length === 1 ? 'is-single' : ''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
   }
 
   /** 店の画面は、横に長い表でも「自店」の列が最初から見えるように、横の位置を合わせる */
@@ -966,6 +1009,7 @@
     return auto.capSaved.has(pid) ? '<span class="cell-state">✓</span>' : '';
   }
   function markCapCell(pid) {
+    refreshStockFigures(pid); // 打った数で「残り」もすぐ変わる（保存を待たない）
     const input = document.querySelector(`[data-cap-input][data-product="${CSS.escape(pid)}"]`); if (!input) return;
     const td = input.closest('td'); td.classList.remove('is-saving', 'is-saved', 'is-error'); const cls = capCellClass(pid); if (cls) td.classList.add(cls);
     td.querySelectorAll('.cell-state,.cell-reason').forEach((n) => n.remove()); td.insertAdjacentHTML('beforeend', capStateMarkup(pid));

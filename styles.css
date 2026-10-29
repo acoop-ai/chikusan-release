@@ -415,3 +415,30 @@ tr.is-aggregate>td.store-cell{border-top-color:#e4daf6;border-bottom-color:#e4da
   .agg-badge{border:1px solid #000!important;color:#000!important;background:#fff!important}
   .agg-done,.agg-wait{border:1px solid #000!important;color:#000!important;background:#fff!important}
 }
+/* 0.2.5 の直し（PO 2026-10-29「在庫情報が見えない・店舗の合計数との幅が読めない」）: BY・倉庫は、商品の行のすぐ横（左に固定）に「注文 ／ 在庫 ／ 残り」。物差し＝赤（残り 0 以下・不足）・黄（在庫数の1割以下・少ない）・未入力 */
+.stock-strip{display:block;width:fit-content;max-width:100%;margin:4px 0 2px;padding:2px 7px;border:1px solid #d5ded7;border-radius:6px;background:#f4f7f5;color:#33443a;font-size:11px;font-weight:600;line-height:1.5;white-space:normal;font-variant-numeric:tabular-nums}
+.stock-strip b{font-size:12px;font-weight:800}
+.stock-strip>span{white-space:nowrap}
+.month-table.has-stock thead th.col-sum{white-space:normal;line-height:1.3}
+.stock-strip.is-low{border-color:#e7cf8f;background:#fff6dc;color:#6b4a00}
+.stock-strip.is-short,.stock-strip.is-missing{border-color:#efc4be;background:#fff1ef;color:#9c3932}
+.stock-rule{margin:0;padding:0 12px 8px;color:#46574b;font-size:11px;line-height:1.6}
+td.rest-cell,td.col-sum{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+td.rest-cell.is-low,.stock-table td.stock-rest.is-low{background:#fff6dc!important;color:#6b4a00}
+td.rest-cell.is-short,.stock-table td.stock-rest.is-short{background:#fff1ef!important;color:#9c3932}
+.month-table .col-sum,.month-table .col-cap,.month-table .col-rest{background:#fff}
+.month-table thead th.col-sum,.month-table thead th.col-cap,.month-table thead th.col-rest{background:#f6f8f6}
+tr.is-aggregate>td.col-sum,tr.is-aggregate>td.col-cap,tr.is-aggregate>td.col-rest:not(.is-low):not(.is-short){background:#f4eefd}
+.month-table .stock-strip{display:none}
+@media(min-width:1101px){
+  .month-table.has-stock .col-maker{width:96px;min-width:96px;max-width:96px}
+  .month-table.has-stock .col-product{width:210px;min-width:210px;max-width:210px;box-shadow:none}
+  .month-table.has-stock .col-sum{position:sticky;left:306px;z-index:1;width:80px;min-width:80px;max-width:80px}
+  .month-table.has-stock .col-cap{position:sticky;left:386px;z-index:1;width:132px;min-width:132px;max-width:132px}
+  .month-table.has-stock .col-rest{position:sticky;left:518px;z-index:1;width:104px;min-width:104px;max-width:104px;box-shadow:inset -2px 0 0 #b9c9bd}
+  .month-table.has-stock thead th.col-sum,.month-table.has-stock thead th.col-cap,.month-table.has-stock thead th.col-rest{z-index:4}
+}
+@media(max-width:1100px){.month-table.has-stock .stock-strip{display:block}}
+.stock-card{border-left:5px solid #2f7a52}
+.stock-card>summary .stock-title{color:#173d27;font-size:15px}
+@media print{.stock-strip,.stock-rule{display:none!important}}
