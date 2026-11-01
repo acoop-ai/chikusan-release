@@ -197,7 +197,7 @@
         return [{ v: dayLabel(r.date), s: st('text', p) }, { v: status.label, s: status.mark === '確定' ? st('text', p) : st('open', p) }, { v: kind(p), s: st('text', p) }, { v: p.manufacturer || '', s: st('text', p) }, { v: p.name || '', s: st('text', p) }, { v: p.specification || '', s: st('text', p) }, { v: String(p.jan || ''), s: st('jan', p) }, { v: p.packSize === '' || p.packSize == null ? '' : Number(p.packSize), s: st('num', p) }].concat(qty, [{ v: total || '', s: st('num', p) }]);
       });
       const foot = [{ v: '週の合計', s: 'totalLabel' }].concat(Array(7).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: rows.reduce((n, r) => n + (Number(r.quantities && r.quantities[s.id]) || 0), 0), s: 'total' })), [{ v: rows.reduce((n, r) => n + sum(r.quantities, stores), 0), s: 'total' }]);
-      sheets.push({ name, headerRow: 5, freezeCols: 5, filter: true, widths: [11, 22, 10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8]), rows: top('畜産 発注書　' + (config.label || '') + '　' + (w.label || '') + '（' + dayLabel(first) + '〜' + dayLabel(last) + '）').concat([head], body, [foot]) });
+      sheets.push({ name, headerRow: 5, freezeCols: 5, filter: true, widths: [11, 22, 10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8]), rows: top('テンチャク【畜産】 発注書　' + (config.label || '') + '　' + (w.label || '') + '（' + dayLabel(first) + '〜' + dayLabel(last) + '）').concat([head], body, [foot]) });
     });
     // 月間合計（在庫数が空＝未入力。店は注文できない）
     const head = ['発注区分', 'メーカー', '商品名', '規格', 'JAN', '入数'].concat(stores.map(storeLabel), ['月計'], ['在庫数', '残数', '不足']).map((v) => ({ v, s: 'head' }));
@@ -208,8 +208,8 @@
         .concat(stores.map((s) => { const v = Number(totals[p.id] && totals[p.id][s.id]) || 0; return { v: v || '', s: st('num', p) }; }), [{ v: t || '', s: st('num', p) }], [c == null ? { v: '未入力', s: st('open', p) } : { v: Number(c), s: st('num', p) }, { v: c == null ? '' : Math.max(0, Number(c) - t), s: st('num', p) }, { v: c != null && t > Number(c) ? t - Number(c) : '', s: st('num', p) }]);
     });
     const foot = [{ v: '総合計', s: 'totalLabel' }].concat(Array(5).fill({ v: '', s: 'totalLabel' }), stores.map((s) => ({ v: (data.products || []).reduce((n, p) => n + (Number(totals[p.id] && totals[p.id][s.id]) || 0), 0), s: 'total' })), [{ v: (data.products || []).reduce((n, p) => n + sum(totals[p.id], stores), 0), s: 'total' }], [{ v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }, { v: '', s: 'totalLabel' }]);
-    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 3, filter: true, widths: [10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], [8, 7, 9]), rows: top('畜産 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
-    const wj = jst(when); const fileName = '畜産発注_' + (config.label || config.month || '') + '_' + wj.getUTCFullYear() + p2(wj.getUTCMonth() + 1) + p2(wj.getUTCDate()) + '-' + p2(wj.getUTCHours()) + p2(wj.getUTCMinutes()) + '.xlsx';
+    sheets.push({ name: sheetName('月間合計', used), headerRow: 5, freezeCols: 3, filter: true, widths: [10, 14, 28, 10, 15, 6].concat(stores.map((s) => Math.max(7, String(storeLabel(s)).length * 2 + 2)), [8], [8, 7, 9]), rows: top('テンチャク【畜産】 発注書　' + (config.label || '') + '　月間合計').concat([head], body, [foot]) });
+    const wj = jst(when); const fileName = 'テンチャク【畜産】_' + (config.label || config.month || '') + '_' + wj.getUTCFullYear() + p2(wj.getUTCMonth() + 1) + p2(wj.getUTCDate()) + '-' + p2(wj.getUTCHours()) + p2(wj.getUTCMinutes()) + '.xlsx';
     return { bytes: writeXlsx(sheets, when), fileName, sheetNames: sheets.map((s) => s.name) };
   }
 

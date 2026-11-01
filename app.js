@@ -1,8 +1,10 @@
 (() => {
   'use strict';
-  // 畜産発注の画面（版 livestock-order-api-0.2.5）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // テンチャク【畜産】（畜産発注）の画面（版 livestock-order-api-0.2.6）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // 0.2.6（速さ・PO 2026-10-31）: 送っている間に入れた欄はためて、終わったら1回で送る・保存の返事の残数をそのまま当てる（読み直さない）・
+  //   BY の商品の操作は返事の表で描く（読み直さない）・札があるときは bootstrap を呼ばない（ログインの画面を出すときだけ）・待ち時間の記録（版の行を長押し）
   // 信頼境界: GAS から届く文字（商品名・店名など）は、人が打った文字。画面に出すときは textContent か esc() を通す。
-  const APP_VERSION = 'livestock-order-api-0.2.5';
+  const APP_VERSION = 'livestock-order-api-0.2.6';
   const CONFIG = window.APP_CONFIG || {};
   const GAS_URL = String(CONFIG.gasUrl || '');
   const GAS_URL_OK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GAS_URL);
@@ -44,13 +46,14 @@
     try { response = await fetch(GAS_URL, { method: 'POST', mode: 'cors', redirect: 'follow', cache: 'no-store', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: controller?.signal }); }
     catch { if (timer) window.clearTimeout(timer); perfNote('api:' + action, t0, 'error'); throw noReply(); }
     if (!response.ok) { if (timer) window.clearTimeout(timer); throw appError(`通信に失敗しました（${response.status}）。時間をおいて、もう一度お試しください。`, 'NETWORK'); }
-    let result;
-    try { result = await response.json(); } catch { throw gaveUp ? noReply() : appError('サーバーの返事を読めませんでした。少し待ってから、もう一度お試しください。', 'NETWORK'); }
+    let result, size = 0;
+    try { const raw = await response.text(); size = raw.length; result = JSON.parse(raw); } catch { throw gaveUp ? noReply() : appError('サーバーの返事を読めませんでした。少し待ってから、もう一度お試しください。', 'NETWORK'); }
     finally { if (timer) window.clearTimeout(timer); } // 返事を読み終えるまでが 30 秒
-    perfNote('api:' + action, t0);
+    perfNote('api:' + action, t0, result && result.ok === false ? String(result.code || 'ERROR') : '', { server: result && result.ms, kb: Math.round(size / 102.4) / 10 }); // サーバーの中の時間（ms）と返事の大きさも、同じ行に（メモリだけ）
     if (result && result.version) noteServerVersion(result.version);
     if (!result || result.ok !== true) {
       const error = appError(result?.message || '処理を完了できませんでした。', result?.code || 'ERROR');
+      if (result && result.cell && typeof result.cell === 'object') error.cell = result.cell; // 断った欄（GAS が、送った欄の中から返す）
       if (error.code === 'SESSION' && authenticated && state.session && state.session.t === sent) clearSession();
       throw error;
     }
@@ -121,9 +124,16 @@
     host.dataset.week = '';
     const p = document.createElement('p'); p.className = 'skeleton-note'; p.setAttribute('role', 'status'); p.append(spinner(), document.createTextNode(message || '読み込み中…')); host.prepend(p);
   }
-  // 速さの記録（画面の中の時間）。中身（数・名前）は持たない。操作の名前とミリ秒だけ、新しい 60 件
+  // 速さの記録（画面の中の時間）。中身（数・名前・メール）は持たない。操作の名前とミリ秒・サーバーの ms・返事の大きさ（KB）だけ、新しい 200 件。
+  //   メモリだけ（端末に保存しない・閉じると消える）。版の行を長押しすると、操作ごとの最後の値と中央値の表（showPerfPanel）
   const perfLog = [];
-  function perfNote(what, t0, note) { perfLog.push({ what, ms: Math.round(performance.now() - t0), note: note || '', at: Date.now() }); if (perfLog.length > 60) perfLog.shift(); }
+  const perfCount = { busy: 0, network: 0, resend: 0 }; // 保存の BUSY・通信の失敗・同じ操作番号の送り直しの回数
+  function perfNote(what, t0, note, extra) {
+    const row = { what, ms: Math.round(performance.now() - t0), note: note || '', at: Date.now() };
+    if (extra && extra.server && typeof extra.server === 'object') { row.server = Number(extra.server.t) || 0; row.wait = Number(extra.server.wait) || 0; }
+    if (extra && Number.isFinite(extra.kb)) row.kb = extra.kb;
+    perfLog.push(row); if (perfLog.length > 200) perfLog.shift();
+  }
   window.__livestockPerf = perfLog;
 
   // ------------------------------------------------------------ ログイン
@@ -245,7 +255,7 @@
     } catch (error) {
       clearSession(); showLoginPanel(error.message, error.code === 'SESSION' ? 'info' : 'error');
     } finally {
-      state.loggingIn = false; hideProgress(); setLoginButton(true, 'Googleでログイン');
+      state.loggingIn = false; hideProgress(); setLoginButton(Boolean(state.clientId), state.clientId ? 'Googleでログイン' : 'ログインの準備中'); // 準備（bootstrap）がまだなら、終わってから押せる
     }
   }
 
@@ -255,8 +265,27 @@
     if (!hasPending) { $('#workspace').hidden = true; $('#period-control').hidden = true; $('#signout-button').hidden = true; text($('#account-label'), '未ログイン'); }
     setStatus('ログインしてください', false);
     if (message) showNotice(hasPending ? message + '　保存していない入力は、ログインし直すと戻ります。' : message, kind);
-    preloadGisIfPopup(hasPending);
+    ensureBootstrap().then(() => preloadGisIfPopup(hasPending)); // ログインの準備（bootstrap）は、ログインの画面を出すときだけ（0.2.6）
     $('#login-panel').scrollIntoView({ block: 'nearest' });
+  }
+
+  /** ログインの準備（Google のログインの番号を受け取る）。1回だけ・失敗したら次に呼んだときにもう一度。札があって開けたときは呼ばない（開くたびの GAS の実行 2 → 1） */
+  let bootJob = null;
+  function ensureBootstrap() {
+    if (state.clientId) return Promise.resolve(true);
+    if (bootJob) return bootJob;
+    setLoginButton(false, 'ログインの準備中');
+    bootJob = api('bootstrap', {}, false).then((cfg) => {
+      state.clientId = cfg.clientId || '';
+      if (!state.clientId) { bootJob = null; setLoginHelp('ログインの設定が終わっていません（E-SETUP）。導入の担当へ連絡してください。'); if (!state.data) setStatus('接続できません', false); return false; }
+      setLoginButton(true, 'Googleでログイン'); if (!state.data) setStatus('ログインできます', true); setLoginHelp('会社のアカウント（本部・店舗）を選んでください。');
+      return true;
+    }, (error) => {
+      bootJob = null; setLoginButton(false, 'ログインの準備中'); setLoginHelp(error.message);
+      if (!state.data) { setStatus('接続できません', false); showNotice(error.message, 'error', '', () => location.reload()); }
+      return false;
+    });
+    return bootJob;
   }
 
   function signOut() {
@@ -265,6 +294,7 @@
     clearSession(); state.data = null; clearPendingMarks(); stopRemainPolling(); remain.at = '';
     $('#workspace').hidden = true; $('#period-control').hidden = true; $('#signout-button').hidden = true; $('#login-panel').hidden = false;
     showNotice(''); text($('#account-label'), '未ログイン'); setStatus('ログアウトしました', false); setLoginHelp('会社のアカウント（本部・店舗）を選んでください。');
+    ensureBootstrap().then(() => preloadGisIfPopup(false)); // 前回の札で開いていたときは、まだ準備していない
   }
 
   // ------------------------------------------------------------ 画面
@@ -280,11 +310,16 @@
       throw error;
     }
   }
+  /** BY の商品の操作の返事に入っている新しい表で描く（0.2.6 直し3: もう1往復しない）。入っていなければ（前の版の GAS）読み直す */
+  async function useWorkspace(res, month) {
+    if (res && res.workspace && res.workspace.month) { const t0 = performance.now(); applyWorkspace(res.workspace); perfNote('render:reply-workspace', t0); return; }
+    await refreshWorkspace(month);
+  }
   /** 受け取った中身（getWorkspace・ログインの返事）を画面にする */
   function applyWorkspace(payload, opts = {}) {
     {
       const t0 = performance.now();
-      state.data = payload; buildSearchKeys(); // pending（保存できていない欄）は残す（自動保存の途中の読み直しで消さない）
+      state.data = payload; buildSearchKeys(); remain.appliedAt = ''; // pending（保存できていない欄）は残す（自動保存の途中の読み直しで消さない）。表を読み直したら、残数は次の返事から当てる
       $('#login-panel').hidden = true; $('#workspace').hidden = false; $('#period-control').hidden = false; $('#signout-button').hidden = false;
       const who = payload.principal || {};
       text($('#account-label'), who.shortLabel || who.label || who.email || 'ログイン中'); $('#account-label').title = who.label || who.email || '';
@@ -781,7 +816,11 @@
   const SAVE_DELAY_MS = 700;
   const RETRY_MS = 5000;
   const pkey = (date, productId, storeId) => [date, productId, storeId].join('\u001f');
-  const auto = { timer: 0, retry: 0, soft: 0, queue: Promise.resolve(), inflight: 0, lastSavedAt: null, savedMarks: new Map(), capSaved: new Map() };
+  const auto = { timer: 0, retry: 0, soft: 0, queue: Promise.resolve(), inflight: 0, lastSavedAt: null, savedMarks: new Map(), capSaved: new Map(), needRemain: false, sending: new Map() };
+  // sending: いま送っている欄（key → 回数・在庫数は 'cap:' + 商品）。送っている間に、保存してある数へ戻した欄も、送り終わった後にもう一度送る（送った数が残らないように）
+  const sendingAdd = (k, d) => { const n = (auto.sending.get(k) || 0) + d; if (n > 0) auto.sending.set(k, n); else auto.sending.delete(k); };
+  // 0.2.6（直し1）: 送っている間（inflight）は、新しい送信を作らない。入れた欄は「保存中」のまま持ち、前の送信が終わったら、たまった欄を1回で送る（送るのは今も1つずつ＝原則5 の保存の列）。
+  //   needRemain: 返事に残数が無かった送信（在庫数・同じ操作番号の再送）があったら、列が空いたときに残数を読み直す（注文の保存の返事には残数が入っている＝読み直さない）
   function pendingCount() { return state.pending.size + state.capPending.size; } // 保存できていない欄（注文と在庫数）
   function pendingChanges() {
     if (!state.pending.size || !state.data) return null;
@@ -871,31 +910,44 @@
     }
     const row = findRow(date, product); const saved = Number(row?.quantities?.[storeId]) || null;
     const was = state.pending.get(key);
-    if ((value || null) === saved && !(was && was.status === 'saving')) { state.pending.delete(key); markCell(key); renderIndicator(); scheduleFlush(SAVE_DELAY_MS); return; } // 保存してある数に戻した
-    state.pending.set(key, { date, productId: product, storeId, quantity: value, status: 'dirty' });
+    if ((value || null) === saved && !(was && was.status === 'saving') && !auto.sending.has(key)) { state.pending.delete(key); markCell(key); renderIndicator(); scheduleFlush(SAVE_DELAY_MS); return; } // 保存してある数に戻した（送っている途中の欄は、戻した数をもう一度送る）
+    state.pending.set(key, { date, productId: product, storeId, quantity: value, status: 'dirty', t0: was && was.t0 ? was.t0 : performance.now() }); // t0: 打ち始め（✓ までの時間＝save:cell・メモリだけ）
     markCell(key); renderIndicator();
     scheduleFlush(SAVE_DELAY_MS);
   }
   function scheduleFlush(ms) { window.clearTimeout(auto.timer); auto.timer = window.setTimeout(flushNow, ms); }
 
-  /** いま保存できていない欄を、1回にまとめて保存の列へ（通信で失敗した欄も一緒に）。中身はここで決める */
+  /** いま保存できていない欄を、1回にまとめて保存の列へ（通信で失敗した欄も一緒に）。中身はここで決める。
+   *   送っている途中なら、新しい送信は作らない（欄は「保存中」のまま）。前の送信が終わったら afterSend が、たまった欄を1回で送る */
   function flushNow() {
     if (remain.redraw && !typing()) { remain.redraw = false; window.setTimeout(() => { if (!typing()) renderOrders(); else remain.redraw = true; }, 0); }
     window.clearTimeout(auto.timer); auto.timer = 0; window.clearTimeout(auto.retry); auto.retry = 0;
     const month = state.data?.month?.month; if (!month) return;
+    if (!state.session) { renderIndicator(); return; } // ログインし直すまで送らない（入れた数は残し、ログインの後に戻して送る）
+    if (auto.inflight) { renderIndicator(); return; } // 送っている途中: ためておく（終わったら1回で送る）
     flushCaps(month);
     const batch = [...state.pending.entries()].filter(([, c]) => c.status === 'dirty' || (c.status === 'error' && c.network));
     if (!batch.length) { renderIndicator(); return; }
     // 通信で失敗した1回ぶんを、そのまま送り直すときは、同じ操作番号（GAS は2回目を前の結果で返す＝二重にならない）
     const rids = new Set(batch.map(([, c]) => c.rid || '')); const reuse = rids.size === 1 && [...rids][0] && batch.every(([, c]) => c.status === 'error' && c.network && c.batchSize === batch.length);
-    const rid = reuse ? [...rids][0] : requestId();
+    const rid = reuse ? [...rids][0] : requestId(); if (reuse) perfCount.resend++;
     const changes = batch.map(([key, c]) => { Object.assign(c, { status: 'saving', network: false, reason: '', rid, batchSize: batch.length }); markCell(key); return { key, date: c.date, productId: c.productId, storeId: c.storeId, quantity: c.quantity }; });
     enqueue({ month, changes, requestId: rid });
   }
-  function enqueue(job) {
+  function enqueue(job) { job.changes.forEach((c) => sendingAdd(c.key, 1)); return queueJob(() => sendJob(job).finally(() => job.changes.forEach((c) => sendingAdd(c.key, -1)))); }
+  /** 保存の列に1つ入れる（注文・在庫数とも）。終わったら afterSend */
+  function queueJob(run) {
     auto.inflight++; renderIndicator();
-    auto.queue = auto.queue.then(() => sendJob(job)).catch(() => {}).then(() => { auto.inflight--; renderIndicator(); if (!auto.inflight) scheduleSoftRefresh(); });
+    auto.queue = auto.queue.then(run).catch(() => {}).then(() => { auto.inflight--; renderIndicator(); if (!auto.inflight) afterSend(); });
     return auto.queue;
+  }
+  /** 列が空いたとき: 送っている間に入れた欄があれば、1回で送る（打っている途中＝0.7 秒の待ちの間なら、その合図で送る）。無ければ、要るときだけ残数を読み直す */
+  function afterSend() {
+    if (!state.session) return; // ログインの期限が切れた: ログインし直すまで送らない
+    const all = [...state.pending.values(), ...state.capPending.values()];
+    if (all.some((c) => c.status === 'dirty')) { if (!auto.timer) flushNow(); return; } // 通信で失敗した欄も、この1回に入る
+    if (all.some((c) => c.status === 'error' && c.network) && !auto.retry) auto.retry = window.setTimeout(flushNow, RETRY_MS); // 送り直しは 5 秒後（送っている間に来た送り直しの合図の分）
+    if (auto.needRemain) { auto.needRemain = false; scheduleSoftRefresh(); }
   }
   /** 断られた理由を、その欄で分かる言葉に */
   function reasonOf(error) {
@@ -909,41 +961,60 @@
   }
   async function sendJob(job) {
     const settle = (c, fn) => { const now = state.pending.get(c.key); if (now && now.status === 'saving' && now.rid === job.requestId && now.quantity === c.quantity) fn(now); };
+    const live = (c) => { const now = state.pending.get(c.key); return now && now.status === 'saving' && now.rid === job.requestId ? now : null; };
+    const resend = async (list) => { const rest = list.filter(live); if (!rest.length) return; const rid = requestId(); rest.forEach((c) => { const now = live(c); now.rid = rid; now.batchSize = rest.length; }); await sendJob({ month: job.month, changes: rest, requestId: rid }); };
     try {
-      await api('saveOrderBatch', { month: job.month, changes: job.changes.map((c) => ({ date: c.date, productId: c.productId, storeId: c.storeId, quantity: c.quantity })), requestId: job.requestId });
+      const res = await api('saveOrderBatch', { month: job.month, changes: job.changes.map((c) => ({ date: c.date, productId: c.productId, storeId: c.storeId, quantity: c.quantity })), requestId: job.requestId });
       auto.lastSavedAt = new Date();
       job.changes.forEach((c) => {
         const row = findRow(c.date, c.productId); // 画面の手元の値も、保存した数にする（あとの比べ・週の合計のため）
         if (row) { row.quantities = row.quantities || {}; if (c.quantity) row.quantities[c.storeId] = c.quantity; else delete row.quantities[c.storeId]; }
-        settle(c, () => { state.pending.delete(c.key); flashSaved(c.key); });
+        settle(c, (now) => { if (now.t0) perfNote('save:cell', now.t0); state.pending.delete(c.key); flashSaved(c.key); });
       });
+      if (res && res.remaining) applyRemaining(res.remaining); else auto.needRemain = true; // 0.2.6（直し2）: 保存の返事の残数を当てる（もう1往復しない）。再送で入っていなければ、列が空いてから読み直す
     } catch (error) {
       if (error.code === 'SESSION') { job.changes.forEach((c) => settle(c, (now) => { now.status = 'dirty'; })); saveDraft(); showLoginPanel(error.message, 'info'); return; }
       if (error.code === 'NETWORK' || error.code === 'BUSY') {
+        perfCount[error.code === 'BUSY' ? 'busy' : 'network']++;
         job.changes.forEach((c) => settle(c, (now) => { Object.assign(now, { status: 'error', network: true, reason: '通信できませんでした（入力を続けると、自動でもう一度送ります）' }); markCell(c.key); }));
         window.clearTimeout(auto.retry); auto.retry = window.setTimeout(flushNow, RETRY_MS); return;
       }
-      // 断られた（締切・在庫数・欄の誤り）。2つ以上なら1つずつ送り直して、どの欄かを分ける（ほかの欄は保存される）
+      auto.needRemain = true; // 断られた（残数が変わっていたかもしれない）: 列が空いたら読み直す
+      const fail = (c) => settle(c, (now) => { Object.assign(now, { status: 'error', network: false, reason: reasonOf(error) }); markCell(c.key); });
       if (job.changes.length > 1) {
+        const cell = error.cell || null;
+        // GAS が断った欄を返したとき（締切・在庫数の入力待ち・SOLD OUT・欄の誤り）: その欄だけ ⚠ にして、残りを1回で送り直す
+        const bad = cell && cell.date ? job.changes.find((c) => c.date === String(cell.date) && String(c.productId) === String(cell.productId) && (!cell.storeId || String(c.storeId) === String(cell.storeId))) : null;
+        if (bad) { fail(bad); await resend(job.changes.filter((c) => c !== bad)); return; }
+        // 商品で断ったとき（在庫数を超える）: ほかの商品の欄を1回で送り、その商品の欄だけ1つずつ送り直して、どの欄かを分ける
+        if (cell && cell.productId && !cell.date) {
+          const same = job.changes.filter((c) => String(c.productId) === String(cell.productId));
+          if (same.length < job.changes.length) await resend(job.changes.filter((c) => String(c.productId) !== String(cell.productId)));
+          if (same.length === 1) { fail(same[0]); return; }
+          for (const c of same) { const now = live(c); if (!now) continue; const rid = requestId(); now.rid = rid; now.batchSize = 1; await sendJob({ month: job.month, changes: [c], requestId: rid }); }
+          return;
+        }
+        // どの欄か分からないとき: 1つずつ送り直して、どの欄かを分ける（ほかの欄は保存される）
         for (const c of job.changes) {
-          const now = state.pending.get(c.key); if (!now || now.status !== 'saving' || now.rid !== job.requestId) continue;
+          const now = live(c); if (!now) continue;
           const rid = requestId(); now.rid = rid; now.batchSize = 1;
           await sendJob({ month: job.month, changes: [c], requestId: rid });
         }
         return;
       }
-      job.changes.forEach((c) => settle(c, (now) => { Object.assign(now, { status: 'error', network: false, reason: reasonOf(error) }); markCell(c.key); }));
+      job.changes.forEach(fail);
     }
   }
-  /** 保存の列が空いて、だれも打っていないときだけ、画面の数（残数・SOLD OUT・合計）を読み直す（打っている途中に表を作り直さない） */
-  function scheduleSoftRefresh() { window.clearTimeout(auto.soft); auto.soft = window.setTimeout(() => { if (!auto.inflight) pollRemaining(); }, 800); } // 自分の保存の後は、残数を読み直す
+  /** 保存の列が空いて、だれも打っていないときだけ、画面の数（残数・SOLD OUT・合計）を読み直す（打っている途中に表を作り直さない）。
+   *   0.2.6: 注文の保存の後は呼ばない（返事に残数が入っている）。在庫数の保存・再送・断られた後だけ */
+  function scheduleSoftRefresh() { window.clearTimeout(auto.soft); auto.soft = window.setTimeout(() => { if (!auto.inflight) pollRemaining(); }, 800); }
 
   // ------------------------------------------------------------ 残数を新しくする（PO 2026-10-28「店舗側もリアルに見れる」）
   //   開いている間（ページが見えているときだけ）1分ごと・画面に戻ってきたとき・自分の保存の後に、軽い問い合わせ getRemaining で読む。
   //   打っている欄は作り直さない（原則5）: 打っていないときだけ表を描き直す（打っている間は、離れた後に）
   //   「更新」のボタン: 保存中の欄は終わってから、注文の数まで全部を読み直す（getWorkspace）。週のタブ・縦横の位置・探す欄の文字・⚠ の欄は残す
   const REMAIN_MS = Number(window.__REMAIN_MS) || 60000; // 試験の見本の画面だけ短くする
-  const remain = { timer: 0, busy: false, refreshing: false, at: '', last: 0, changed: new Map(), redraw: false };
+  const remain = { timer: 0, busy: false, refreshing: false, at: '', last: 0, changed: new Map(), redraw: false, appliedAt: '' }; // appliedAt: 当てた残数を数えた時刻（サーバー）
   const typing = () => Boolean(document.activeElement?.matches?.('[data-order-input],[data-cap-input]'));
   function startRemainPolling() { if (!remain.timer) remain.timer = window.setInterval(() => { if (document.visibilityState === 'visible') pollRemaining(); }, REMAIN_MS); }
   function stopRemainPolling() { window.clearInterval(remain.timer); remain.timer = 0; }
@@ -958,6 +1029,8 @@
   }
   function applyRemaining(r) {
     const data = state.data; if (!data || !r || r.month !== data.month?.month) return;
+    if (r.computedAt && remain.appliedAt && String(r.computedAt) < remain.appliedAt) return; // 当てた数より前に数えた残数（遅れて届いた問い合わせ）は当てない
+    if (r.computedAt) remain.appliedAt = String(r.computedAt);
     let changed = false;
     Object.keys(r.products || {}).forEach((pid) => {
       const x = r.products[pid];
@@ -1018,28 +1091,27 @@
     const input = event.currentTarget; const pid = String(input.dataset.product); const value = input.value === '' ? null : Number(input.value);
     if (value !== null && (!Number.isInteger(value) || value < 0 || value > 999999)) { state.capPending.set(pid, { productId: pid, quantity: value, status: 'error', reason: '0以上の整数で入れてください（空欄は未入力＝店は注文できません）', invalid: true }); markCapCell(pid); renderIndicator(); return; }
     const saved = state.data?.caps?.[pid]; const was = state.capPending.get(pid);
-    if ((value == null ? null : value) === (saved == null ? null : Number(saved)) && !(was && was.status === 'saving')) { state.capPending.delete(pid); markCapCell(pid); renderIndicator(); return; }
-    state.capPending.set(pid, { productId: pid, quantity: value, status: 'dirty' }); markCapCell(pid); renderIndicator(); scheduleFlush(SAVE_DELAY_MS);
+    if ((value == null ? null : value) === (saved == null ? null : Number(saved)) && !(was && was.status === 'saving') && !auto.sending.has('cap:' + pid)) { state.capPending.delete(pid); markCapCell(pid); renderIndicator(); return; }
+    state.capPending.set(pid, { productId: pid, quantity: value, status: 'dirty', t0: was && was.t0 ? was.t0 : performance.now() }); markCapCell(pid); renderIndicator(); scheduleFlush(SAVE_DELAY_MS);
   }
   function flushCaps(month) {
     [...state.capPending.entries()].filter(([, c]) => c.status === 'dirty' || (c.status === 'error' && c.network)).forEach(([pid, c]) => {
       const rid = c.network && c.rid ? c.rid : requestId(); Object.assign(c, { status: 'saving', network: false, reason: '', rid }); markCapCell(pid);
       const job = { month, productId: pid, quantity: c.quantity, requestId: rid };
-      auto.inflight++; renderIndicator();
-      auto.queue = auto.queue.then(() => sendCapJob(job)).catch(() => {}).then(() => { auto.inflight--; renderIndicator(); if (!auto.inflight) scheduleSoftRefresh(); });
+      sendingAdd('cap:' + pid, 1); queueJob(() => sendCapJob(job).finally(() => sendingAdd('cap:' + pid, -1)));
     });
   }
   async function sendCapJob(job) {
     const now = () => { const c = state.capPending.get(job.productId); return c && c.status === 'saving' && c.rid === job.requestId && c.quantity === job.quantity ? c : null; };
     try {
       await api('setProductCap', { month: job.month, productId: job.productId, cap: job.quantity, requestId: job.requestId });
-      auto.lastSavedAt = new Date();
+      auto.lastSavedAt = new Date(); auto.needRemain = true; // 在庫数の返事には残数が無い: 列が空いたら読み直す（相手の直しも見える）
       if (state.data) { state.data.caps = state.data.caps || {}; if (job.quantity == null) delete state.data.caps[job.productId]; else state.data.caps[job.productId] = job.quantity; }
-      if (now()) { state.capPending.delete(job.productId); window.clearTimeout(auto.capSaved.get(job.productId)); auto.capSaved.set(job.productId, window.setTimeout(() => { auto.capSaved.delete(job.productId); markCapCell(job.productId); }, 4000)); markCapCell(job.productId); }
+      if (now()) { if (now().t0) perfNote('save:cap', now().t0); state.capPending.delete(job.productId); window.clearTimeout(auto.capSaved.get(job.productId)); auto.capSaved.set(job.productId, window.setTimeout(() => { auto.capSaved.delete(job.productId); markCapCell(job.productId); }, 4000)); markCapCell(job.productId); }
     } catch (error) {
       const c = now(); if (!c) return;
       if (error.code === 'SESSION') { c.status = 'dirty'; showLoginPanel(error.message, 'info'); return; }
-      if (error.code === 'NETWORK' || error.code === 'BUSY') { Object.assign(c, { status: 'error', network: true, reason: '通信できませんでした（入力を続けると、自動でもう一度送ります）' }); markCapCell(job.productId); window.clearTimeout(auto.retry); auto.retry = window.setTimeout(flushNow, RETRY_MS); return; }
+      if (error.code === 'NETWORK' || error.code === 'BUSY') { perfCount[error.code === 'BUSY' ? 'busy' : 'network']++; Object.assign(c, { status: 'error', network: true, reason: '通信できませんでした（入力を続けると、自動でもう一度送ります）' }); markCapCell(job.productId); window.clearTimeout(auto.retry); auto.retry = window.setTimeout(flushNow, RETRY_MS); return; }
       Object.assign(c, { status: 'error', network: false, reason: error.message || '保存できませんでした' }); markCapCell(job.productId);
     }
   }
@@ -1048,7 +1120,7 @@
   function fillPrintHead() {
     const node = $('#print-head'); const data = state.data; if (!node || !data) return;
     const config = data.month || {}; const who = data.principal || {};
-    node.textContent = `畜産 発注書　${config.label || ''}　印刷: ${OB ? OB.stamp(new Date()) : new Date().toLocaleString('ja-JP')}　${who.shortLabel || who.label || ''}（${who.roleLabel || ''}）　確定は行ごと（集約発注は BY の確定）${pendingCount() ? '　（保存できていない欄は、印刷に入っていません）' : ''}`;
+    node.textContent = `テンチャク【畜産】 発注書　${config.label || ''}　印刷: ${OB ? OB.stamp(new Date()) : new Date().toLocaleString('ja-JP')}　${who.shortLabel || who.label || ''}（${who.roleLabel || ''}）　確定は行ごと（集約発注は BY の確定）${pendingCount() ? '　（保存できていない欄は、印刷に入っていません）' : ''}`;
   }
 
   // ------------------------------------------------------------ Excel でダウンロード（倉庫と BY・押せる人は GAS も確かめる）
@@ -1098,7 +1170,7 @@
   async function copyPreviousMonth(button) {
     const month = state.data?.month?.month; if (!month || (button && button.disabled)) return false;
     const done = busyButton(button, '入れています…');
-    try { const res = await api('copyMonthProducts', { month, requestId: requestId() }); await refreshWorkspace(month); toast(res?.message || '入れました。'); return true; }
+    try { const res = await api('copyMonthProducts', { month, requestId: requestId() }); await useWorkspace(res, month); toast(res?.message || '入れました。'); return true; }
     catch (error) { done(); if (error.code === 'SESSION') showLoginPanel(error.message, 'info'); else toast(error.message, true); return false; }
   }
 
@@ -1135,7 +1207,7 @@
         const isIn = included.has(String(product.id));
         const toggle = makeButton(isIn ? 'この月から外す' : 'この月に追加', async () => {
           if (toggle.disabled) return; const done = busyButton(toggle, isIn ? '外しています…' : '入れています…');
-          try { const res = await api('setMonthProduct', { month: state.data.month?.month, productId: product.id, included: !isIn, requestId: requestId() }); await refreshWorkspace(state.data.month?.month); openProductManager(); toast(res?.message || '直しました。'); }
+          try { const res = await api('setMonthProduct', { month: state.data.month?.month, productId: product.id, included: !isIn, requestId: requestId() }); await useWorkspace(res, state.data.month?.month); openProductManager(); toast(res?.message || '直しました。'); }
           catch (error) { done(); toast(error.message, true); }
         }, `button ${isIn ? 'button-secondary' : 'button-primary'} product-month-toggle`);
         row.append(edit, toggle); list.append(row);
@@ -1248,7 +1320,7 @@
       try {
         const res = await api('saveProductsBatch', body);
         sheetFiles = [];
-        await refreshWorkspace(month || undefined);
+        await useWorkspace(res, month || undefined);
         openProductManager();
         toast(res?.message || '登録しました。');
       } catch (error) {
@@ -1308,7 +1380,7 @@
       const product = Object.fromEntries(EDITOR_KEYS.map((key) => [key, form.elements[key].value]));
       if (form.elements.productId.value) product.productId = form.elements.productId.value;
       product.aliases = form.elements.aliases.value.split(/[、,，]/).map((s) => s.trim()).filter(Boolean);
-      const res = await api('saveProduct', { product, month: state.data.month?.month, requestId: requestId() }); await refreshWorkspace(state.data.month?.month); toast(res?.message || '商品を保存しました。');
+      const res = await api('saveProduct', { product, month: state.data.month?.month, requestId: requestId() }); await useWorkspace(res, state.data.month?.month); toast(res?.message || '商品を保存しました。');
     });
     const form = $('#modal-root form');
     form.noValidate = true; // 理由は欄の下に出す（ブラウザの吹き出しに任せない）
@@ -1504,6 +1576,72 @@
   window.addEventListener('focus', () => { if (Date.now() - remain.last > 5000) pollRemaining(); });
   window.addEventListener('beforeunload', (event) => { if (!state.leaving && (pendingCount() || auto.inflight)) { flushNow(); event.preventDefault(); event.returnValue = ''; } }); // 送っている途中・失敗が残っているときは、閉じる前に止める
 
+
+  // ------------------------------------------------------------ 待ち時間の記録（0.2.6・診断 6-2）: 画面の下の版の行を長押し（または5回続けて押す）
+  //   操作ごとの「最後・中央値・いちばん遅い」と、サーバーの中の時間（返事の ms）・返事の大きさ。中身（数・名前・メール）は持たない。メモリだけ（閉じると消える）
+  const PERF_LABELS = { open: '開く（前回のログインで）', login: 'ログインして開く', 'save:cell': '欄を打ち始めてから ✓ まで', 'save:cap': '在庫数を打ち始めてから ✓ まで', remaining: '残数の読み直し（1分ごと）', refresh: '「更新」', month: '月の切り替え', week: '週のタブ', excel: 'Excel でダウンロード', aggConfirm: '集約発注の確定', aggUndo: '確定の取り消し',
+    'api:getWorkspace': '通信: 読み込み', 'api:saveOrderBatch': '通信: 注文の保存（1回の送信）', 'api:getRemaining': '通信: 残数', 'api:setProductCap': '通信: 在庫数の保存', 'api:startSession': '通信: ログイン', 'api:bootstrap': '通信: ログインの準備', 'api:exportOrders': '通信: Excel の中身', 'api:saveProduct': '通信: 商品の保存', 'api:saveProductsBatch': '通信: 登録用紙', 'api:setMonthProduct': '通信: この月の商品', 'api:copyMonthProducts': '通信: 前の月を写す', 'api:confirmAggregate': '通信: 集約発注の確定', 'api:getAuditLog': '通信: 操作履歴', 'render:workspace': '画面を描く（全部）', 'render:orders': '画面を描く（表）', 'render:reply-workspace': '画面を描く（返事の表）' };
+  const PERF_ORDER = ['open', 'login', 'save:cell', 'save:cap', 'api:saveOrderBatch', 'api:getWorkspace', 'refresh', 'month', 'week', 'remaining', 'excel'];
+  function median(list) { const a = list.slice().sort((x, y) => x - y); const n = a.length; return n ? (n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2) : 0; }
+  function perfSummary() {
+    const groups = new Map();
+    perfLog.forEach((r) => { if (!groups.has(r.what)) groups.set(r.what, []); groups.get(r.what).push(r); });
+    const keys = [...groups.keys()].sort((a, b) => { const ia = PERF_ORDER.indexOf(a), ib = PERF_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
+    return keys.map((k) => { const rows = groups.get(k); const ms = rows.map((r) => r.ms); const srv = rows.filter((r) => Number.isFinite(r.server)).map((r) => r.server); const last = rows[rows.length - 1];
+      return { what: k, label: PERF_LABELS[k] || k, n: rows.length, last: last.ms, median: median(ms), max: Math.max(...ms), server: srv.length ? median(srv) : null, wait: srv.length ? median(rows.filter((r) => Number.isFinite(r.wait)).map((r) => r.wait)) : null, kb: Number.isFinite(last.kb) ? last.kb : null, errors: rows.filter((r) => r.note).length }; });
+  }
+  const sec = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(ms < 10000 ? 2 : 1) + ' 秒');
+  function perfText() {
+    const head = ['操作', '回数', '最後', '中央値', 'いちばん遅い', 'サーバーの中（中央値）', 'うちロックの待ち', '返事（KB）'].join('\t');
+    const lines = perfSummary().map((x) => [x.label, x.n, sec(x.last), sec(x.median), sec(x.max), sec(x.server), sec(x.wait), x.kb == null ? '—' : x.kb].join('\t'));
+    return [`テンチャク【畜産】 待ち時間の記録（${APP_VERSION}・${new Date().toLocaleString('ja-JP')}）`, head].concat(lines, [`BUSY ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号の送り直し ${perfCount.resend} 回`]).join('\n');
+  }
+  function showPerfPanel() {
+    const root = $('#modal-root'); if (!root) return;
+    root.replaceChildren();
+    const back = document.createElement('div'); back.className = 'modal-backdrop';
+    const card = document.createElement('section'); card.className = 'modal-card perf-modal'; card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true'); card.setAttribute('aria-labelledby', 'perf-title');
+    const head = document.createElement('div'); head.className = 'modal-heading';
+    const h = document.createElement('h2'); h.id = 'perf-title'; h.textContent = '待ち時間の記録';
+    const x = makeButton('×', () => root.replaceChildren(), 'modal-close'); x.setAttribute('aria-label', '閉じる');
+    head.append(h, x); card.append(head);
+    const note = document.createElement('p'); note.className = 'perf-note'; note.textContent = 'この画面を開いてからの操作ごとの時間です（新しい 200 件）。この端末のメモリだけにあり、閉じると消えます（数や名前は持っていません）。'; card.append(note);
+    const rows = perfSummary();
+    if (!rows.length) { const p = document.createElement('p'); p.className = 'guide-footnote'; p.textContent = 'まだ記録がありません。'; card.append(p); }
+    else {
+      const wrap = document.createElement('div'); wrap.className = 'perf-table-wrap';
+      const table = document.createElement('table'); table.className = 'perf-table';
+      const thead = document.createElement('thead'); const tr0 = document.createElement('tr');
+      ['操作', '回数', '最後', '中央値', 'いちばん遅い', 'サーバーの中', '返事'].forEach((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; tr0.append(th); });
+      thead.append(tr0); table.append(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach((r) => {
+        const tr = document.createElement('tr'); if (/^save:/.test(r.what)) tr.className = 'is-key';
+        [r.label + (r.errors ? `（断り・失敗 ${r.errors}）` : ''), String(r.n), sec(r.last), sec(r.median), sec(r.max), r.server == null ? '—' : sec(r.server) + (r.wait ? `（待ち ${sec(r.wait)}）` : ''), r.kb == null ? '—' : r.kb + ' KB'].forEach((t, i) => { const td = document.createElement(i ? 'td' : 'th'); td.textContent = t; if (i) td.className = 'num'; else td.scope = 'row'; tr.append(td); });
+        tbody.append(tr);
+      });
+      table.append(tbody); wrap.append(table); card.append(wrap);
+    }
+    const counts = document.createElement('p'); counts.className = 'perf-counts'; counts.textContent = `ほかの保存と重なった（BUSY） ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号で送り直した ${perfCount.resend} 回`; card.append(counts);
+    const actions = document.createElement('div'); actions.className = 'modal-actions';
+    const copy = makeButton('文字で写す', () => { try { navigator.clipboard.writeText(perfText()).then(() => toast('待ち時間の記録を写しました（貼り付けて送れます）。'), () => toast('写せませんでした。', true)); } catch { toast('写せませんでした。', true); } }, 'button button-secondary');
+    actions.append(copy, makeButton('閉じる', () => root.replaceChildren(), 'button button-primary')); card.append(actions);
+    back.append(card); root.append(back);
+    back.addEventListener('click', (e) => { if (e.target === back) root.replaceChildren(); });
+  }
+  window.__livestockPerfTable = () => perfSummary(); // 試験の画面と、公開の後の計測で読む（中身は操作の名前とミリ秒だけ）
+  (() => {
+    const node = $('#app-version'); if (!node) return;
+    node.tabIndex = 0; node.setAttribute('role', 'button'); node.title = '長押し（または5回続けて押す）で、待ち時間の記録';
+    let timer = 0, clicks = 0, clickTimer = 0;
+    const stop = () => { window.clearTimeout(timer); timer = 0; };
+    node.addEventListener('pointerdown', () => { stop(); timer = window.setTimeout(() => { timer = 0; showPerfPanel(); }, 700); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => node.addEventListener(ev, stop));
+    node.addEventListener('contextmenu', (e) => e.preventDefault()); // スマホの長押しのメニューを出さない
+    node.addEventListener('click', () => { clicks++; window.clearTimeout(clickTimer); clickTimer = window.setTimeout(() => { clicks = 0; }, 1500); if (clicks >= 5) { clicks = 0; showPerfPanel(); } });
+    node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showPerfPanel(); } });
+  })();
+
   async function start() {
     noteServerVersion('');
     try { window.sessionStorage.removeItem('livestock-order-session-v1'); } catch {}
@@ -1513,23 +1651,19 @@
     if (!GAS_URL_OK) { setStatus('接続先の設定待ち', false); setLoginButton(false, 'ログインの準備中'); setLoginHelp('GASの導入の設定が終わると、ログインできます。'); return; }
     setStatus('接続を確かめています', false);
     const t0 = performance.now();
-    let opening = null;
-    if (!(redirect && redirect.accessToken)) {
-      state.session = readSession();
-      if (state.session) { // 前回のログインの札がある: 注文の読み込みを先に出す（bootstrap の返事を待たない）
-        $('#login-panel').hidden = true; $('#workspace').hidden = false; text($('#account-label'), 'ログイン中…');
-        showProgress('前回のログインで開いています…'); renderSkeleton('注文を読み込んでいます…');
-        opening = refreshWorkspace().then(() => perfNote('open', t0)).catch(() => { /* 画面に出してある */ }).finally(hideProgress);
-      }
+    // 0.2.6: bootstrap（ログインの準備）は、ログインの画面を出すときだけ呼ぶ。Google から戻ったとき・前回の札があるときは呼ばない（待たない）
+    if (redirect && redirect.accessToken) { await finishLogin(redirect.accessToken); return; } // ログインして戻った: すぐ startSession（失敗したら、ログインの画面で準備する）
+    state.session = readSession();
+    if (state.session) { // 前回のログインの札がある: 注文の読み込みだけ（札が切れていたら、ログインの画面を出すときに準備する）
+      $('#login-panel').hidden = true; $('#workspace').hidden = false; text($('#account-label'), 'ログイン中…');
+      showProgress('前回のログインで開いています…'); renderSkeleton('注文を読み込んでいます…');
+      await refreshWorkspace().then(() => perfNote('open', t0)).catch(() => { /* 画面に出してある */ }).finally(hideProgress);
+      return;
     }
-    try { const cfg = await api('bootstrap', {}, false); state.clientId = cfg.clientId || ''; }
-    catch (error) { if (opening) { await opening; return; } setStatus('接続できません', false); setLoginHelp(error.message); showNotice(error.message, 'error', '', () => location.reload()); return; }
-    if (!state.clientId) { setStatus('接続できません', false); setLoginHelp('ログインの設定が終わっていません（E-SETUP）。導入の担当へ連絡してください。'); return; }
-    setLoginButton(true, 'Googleでログイン'); if (!state.data) setStatus('ログインできます', true); setLoginHelp('会社のアカウント（本部・店舗）を選んでください。');
+    const ready = await ensureBootstrap();
+    if (!ready) return;
     preloadGisIfPopup(false);
-    if (redirect && redirect.accessToken) { await finishLogin(redirect.accessToken); return; }
     if (redirect && redirect.error) showLoginHelpKind(redirect.error);
-    if (opening) await opening;
   }
   start().catch(() => {});
 })();
