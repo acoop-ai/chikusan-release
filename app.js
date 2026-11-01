@@ -1,10 +1,10 @@
 (() => {
   'use strict';
-  // テンチャク【畜産】（畜産発注）の画面（版 livestock-order-api-0.2.6）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // テンチャク【畜産】（畜産発注）の画面（版 livestock-order-api-0.2.7）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
   // 0.2.6（速さ・PO 2026-10-31）: 送っている間に入れた欄はためて、終わったら1回で送る・保存の返事の残数をそのまま当てる（読み直さない）・
   //   BY の商品の操作は返事の表で描く（読み直さない）・札があるときは bootstrap を呼ばない（ログインの画面を出すときだけ）・待ち時間の記録（版の行を長押し）
   // 信頼境界: GAS から届く文字（商品名・店名など）は、人が打った文字。画面に出すときは textContent か esc() を通す。
-  const APP_VERSION = 'livestock-order-api-0.2.6';
+  const APP_VERSION = 'livestock-order-api-0.2.7';
   const CONFIG = window.APP_CONFIG || {};
   const GAS_URL = String(CONFIG.gasUrl || '');
   const GAS_URL_OK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GAS_URL);
@@ -128,9 +128,14 @@
   //   メモリだけ（端末に保存しない・閉じると消える）。版の行を長押しすると、操作ごとの最後の値と中央値の表（showPerfPanel）
   const perfLog = [];
   const perfCount = { busy: 0, network: 0, resend: 0 }; // 保存の BUSY・通信の失敗・同じ操作番号の送り直しの回数
+  // 0.2.7（PO 2026-11-01）: サーバーの中の内訳（返事の ms のうち、この7つだけ）。ms.n（その月の全店の注文の行数）は、どの役割でも持たない・出さない
+  const SERVER_PARTS = [['auth', 'ログインの確かめ'], ['open', 'ブックを開く'], ['wait', 'ロックの待ち'], ['hold', 'ロックの中'], ['read', 'シートを読む'], ['write', 'シートに書く'], ['audit', '記録を書く']];
   function perfNote(what, t0, note, extra) {
     const row = { what, ms: Math.round(performance.now() - t0), note: note || '', at: Date.now() };
-    if (extra && extra.server && typeof extra.server === 'object') { row.server = Number(extra.server.t) || 0; row.wait = Number(extra.server.wait) || 0; }
+    if (extra && extra.server && typeof extra.server === 'object') {
+      row.server = Number(extra.server.t) || 0; row.parts = {};
+      SERVER_PARTS.forEach(([k]) => { const v = extra.server[k]; if (typeof v === 'number' && Number.isFinite(v)) row.parts[k] = v; });
+    }
     if (extra && Number.isFinite(extra.kb)) row.kb = extra.kb;
     perfLog.push(row); if (perfLog.length > 200) perfLog.shift();
   }
@@ -667,12 +672,13 @@
     if (f.rest === 0) return '0（残りなし）';
     return f.level === 'low' ? `${f.rest}（少ない）` : String(f.rest);
   }
-  /** 週ごとの表の商品の欄（左に固定）の1行「注文 7 ／ 在庫 40 ／ 残り 33」。月間合計の表では、狭い画面だけ（広い画面は左に固定の列） */
+  /** 週ごとの表の商品の欄（左に固定）の1行「月 注文 7 ／ 在庫 40 ／ 残り 33」。月間合計の表では、狭い画面だけ（広い画面は左に固定の列）
+   *   0.2.7（PO 2026-11-01）: 頭に「月」＝その月の数（右の端の「合計」は、その行の日の合計。在庫は月の数なので、右の端に並べずこの1行のまま） */
   function stockStrip(pid, data) {
     const f = stockFigures(pid, data);
     // 言葉と数は離さない（折り返しは「／」の所だけ）
     const tail = f.level === 'missing' ? '<span>在庫 <b>未入力</b></span><span>（店は注文できません）</span>' : `<span>在庫 <b>${esc(f.cap)}</b></span> ／ <span>${f.rest < 0 ? `<b>不足 ${esc(-f.rest)}</b>` : `残り <b>${esc(restText(f))}</b>`}</span>`;
-    return `<span class="stock-strip is-${f.level}" data-stock-strip="${esc(pid)}"><span>注文 <b>${esc(f.total)}</b></span> ／ ${tail}</span>`;
+    return `<span class="stock-strip is-${f.level}" data-stock-strip="${esc(pid)}"><span><span class="stock-strip-month">月</span> 注文 <b>${esc(f.total)}</b></span> ／ ${tail}</span>`;
   }
   function stockRuleLine(where) { return `<p class="stock-rule">${esc(where)}${esc(STOCK_RULE)}</p>`; }
   /** 在庫数を打っている間・保存の後: 「注文 ／ 在庫 ／ 残り」・月間合計の「残り」・上の表の「残り」「不足」を、その場で直す（表は作り直さない） */
@@ -729,7 +735,7 @@
     } else body = `<tbody>${rows.map(rowHtml).join('')}</tbody>`;
     if (!rows.length) body = `<tbody><tr><td colspan="${ncols}">該当する商品がありません。</td></tr></tbody>`;
     const columns = `<th class="col-date">日付</th><th class="col-maker">メーカー</th><th class="col-product">商品・規格・JAN</th>${storeHeads(stores, ownStoreId)}<th>合計</th>`;
-    const rule = stock ? stockRuleLine('商品名の下の「注文 ／ 在庫 ／ 残り」＝その月の全店の注文の合計・在庫数・残り（在庫数 − 注文）。在庫数は上の「在庫数と注文の合計（月）」か「月間合計」で入れます。') : '';
+    const rule = stock ? stockRuleLine('商品名の下の「月 注文 ／ 在庫 ／ 残り」＝その月の全店の注文の合計・在庫数・残り（在庫数 − 注文）。右の端の「合計」は、その日の行の合計です。在庫数は上の「在庫数と注文の合計（月）」か「月間合計」で入れます。') : '';
     return `<section class="week-card"><div class="week-heading"><h3>${esc(week.label || '週')}</h3><span>${esc(week.startLabel || '')}${week.endLabel ? ` ～ ${esc(week.endLabel)}` : ''}　<b class="unit-note">数はケース</b></span></div>${rule}<div class="table-scroll"><table class="order-table ${stores.length === 1 ? 'is-single' : ''} ${opts.bands ? 'has-day-bands' : ''}"><thead><tr>${columns}</tr></thead>${body}</table></div>${legendLine()}</section>`;
   }
 
@@ -1579,6 +1585,7 @@
 
   // ------------------------------------------------------------ 待ち時間の記録（0.2.6・診断 6-2）: 画面の下の版の行を長押し（または5回続けて押す）
   //   操作ごとの「最後・中央値・いちばん遅い」と、サーバーの中の時間（返事の ms）・返事の大きさ。中身（数・名前・メール）は持たない。メモリだけ（閉じると消える）
+  //   0.2.7（PO 2026-11-01「サーバーの中の時間がどこで使われているか」）: 内訳 auth・open・wait・hold・read・write・audit を列に（操作ごとの中央値・「文字で写す」にも）
   const PERF_LABELS = { open: '開く（前回のログインで）', login: 'ログインして開く', 'save:cell': '欄を打ち始めてから ✓ まで', 'save:cap': '在庫数を打ち始めてから ✓ まで', remaining: '残数の読み直し（1分ごと）', refresh: '「更新」', month: '月の切り替え', week: '週のタブ', excel: 'Excel でダウンロード', aggConfirm: '集約発注の確定', aggUndo: '確定の取り消し',
     'api:getWorkspace': '通信: 読み込み', 'api:saveOrderBatch': '通信: 注文の保存（1回の送信）', 'api:getRemaining': '通信: 残数', 'api:setProductCap': '通信: 在庫数の保存', 'api:startSession': '通信: ログイン', 'api:bootstrap': '通信: ログインの準備', 'api:exportOrders': '通信: Excel の中身', 'api:saveProduct': '通信: 商品の保存', 'api:saveProductsBatch': '通信: 登録用紙', 'api:setMonthProduct': '通信: この月の商品', 'api:copyMonthProducts': '通信: 前の月を写す', 'api:confirmAggregate': '通信: 集約発注の確定', 'api:getAuditLog': '通信: 操作履歴', 'render:workspace': '画面を描く（全部）', 'render:orders': '画面を描く（表）', 'render:reply-workspace': '画面を描く（返事の表）' };
   const PERF_ORDER = ['open', 'login', 'save:cell', 'save:cap', 'api:saveOrderBatch', 'api:getWorkspace', 'refresh', 'month', 'week', 'remaining', 'excel'];
@@ -1587,14 +1594,18 @@
     const groups = new Map();
     perfLog.forEach((r) => { if (!groups.has(r.what)) groups.set(r.what, []); groups.get(r.what).push(r); });
     const keys = [...groups.keys()].sort((a, b) => { const ia = PERF_ORDER.indexOf(a), ib = PERF_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
-    return keys.map((k) => { const rows = groups.get(k); const ms = rows.map((r) => r.ms); const srv = rows.filter((r) => Number.isFinite(r.server)).map((r) => r.server); const last = rows[rows.length - 1];
-      return { what: k, label: PERF_LABELS[k] || k, n: rows.length, last: last.ms, median: median(ms), max: Math.max(...ms), server: srv.length ? median(srv) : null, wait: srv.length ? median(rows.filter((r) => Number.isFinite(r.wait)).map((r) => r.wait)) : null, kb: Number.isFinite(last.kb) ? last.kb : null, errors: rows.filter((r) => r.note).length }; });
+    return keys.map((k) => { const rows = groups.get(k); const ms = rows.map((r) => r.ms); const srvRows = rows.filter((r) => Number.isFinite(r.server)); const last = rows[rows.length - 1];
+      const parts = {}; SERVER_PARTS.forEach(([p]) => { const v = srvRows.map((r) => r.parts && r.parts[p]).filter((x) => Number.isFinite(x)); parts[p] = v.length ? median(v) : null; }); // 0.2.7 内訳も操作ごとの中央値
+      return { what: k, label: PERF_LABELS[k] || k, n: rows.length, last: last.ms, median: median(ms), max: Math.max(...ms), server: srvRows.length ? median(srvRows.map((r) => r.server)) : null, parts, kb: Number.isFinite(last.kb) ? last.kb : null, errors: rows.filter((r) => r.note).length }; });
   }
-  const sec = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(ms < 10000 ? 2 : 1) + ' 秒');
+  // 単位は見出しに（欄は数だけ・ui_design_principles 原則3）。秒は小数2けた（10 秒から1けた）
+  const secNum = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(ms < 10000 ? 2 : 1));
+  const PERF_HEAD = ['操作', '回数', '最後', '中央値', 'いちばん遅い', '全体'].concat(SERVER_PARTS.map(([, label]) => label), ['返事']);
+  const perfCells = (x) => [x.label + (x.errors ? `（断り・失敗 ${x.errors}）` : ''), String(x.n), secNum(x.last), secNum(x.median), secNum(x.max), secNum(x.server)].concat(SERVER_PARTS.map(([p]) => secNum(x.parts[p])), [x.kb == null ? '—' : String(x.kb)]);
   function perfText() {
-    const head = ['操作', '回数', '最後', '中央値', 'いちばん遅い', 'サーバーの中（中央値）', 'うちロックの待ち', '返事（KB）'].join('\t');
-    const lines = perfSummary().map((x) => [x.label, x.n, sec(x.last), sec(x.median), sec(x.max), sec(x.server), sec(x.wait), x.kb == null ? '—' : x.kb].join('\t'));
-    return [`テンチャク【畜産】 待ち時間の記録（${APP_VERSION}・${new Date().toLocaleString('ja-JP')}）`, head].concat(lines, [`BUSY ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号の送り直し ${perfCount.resend} 回`]).join('\n');
+    const head = ['操作', '回数', '最後（秒）', '中央値（秒）', 'いちばん遅い（秒）', 'サーバーの中・全体（秒・中央値）'].concat(SERVER_PARTS.map(([, label]) => 'うち ' + label + '（秒・中央値）'), ['返事（KB）']).join('\t');
+    const lines = perfSummary().map((x) => perfCells(x).join('\t'));
+    return [`テンチャク【畜産】 待ち時間の記録（${APP_VERSION}・${new Date().toLocaleString('ja-JP')}）`, head].concat(lines, ['（サーバーの中の内訳は重なる所があり、足しても全体になりません。ロックの中は、読む・書く・記録の一部を含みます）', `BUSY ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号の送り直し ${perfCount.resend} 回`]).join('\n');
   }
   function showPerfPanel() {
     const root = $('#modal-root'); if (!root) return;
@@ -1605,24 +1616,30 @@
     const h = document.createElement('h2'); h.id = 'perf-title'; h.textContent = '待ち時間の記録';
     const x = makeButton('×', () => root.replaceChildren(), 'modal-close'); x.setAttribute('aria-label', '閉じる');
     head.append(h, x); card.append(head);
-    const note = document.createElement('p'); note.className = 'perf-note'; note.textContent = 'この画面を開いてからの操作ごとの時間です（新しい 200 件）。この端末のメモリだけにあり、閉じると消えます（数や名前は持っていません）。'; card.append(note);
+    const body = document.createElement('div'); body.className = 'perf-body'; card.append(body);
+    const note = document.createElement('p'); note.className = 'perf-note'; note.textContent = 'この画面を開いてからの操作ごとの時間です（新しい 200 件）。この端末のメモリだけにあり、閉じると消えます（数や名前は持っていません）。'; body.append(note);
     const rows = perfSummary();
-    if (!rows.length) { const p = document.createElement('p'); p.className = 'guide-footnote'; p.textContent = 'まだ記録がありません。'; card.append(p); }
+    if (!rows.length) { const p = document.createElement('p'); p.className = 'guide-footnote'; p.textContent = 'まだ記録がありません。'; body.append(p); }
     else {
+      // 0.2.7: サーバーの中の内訳（返事の ms）を列に。見出しは2段（画面で測った時間／サーバーの中）・単位は見出しに・左の操作の列は横に動かしても残る
+      const howto = document.createElement('p'); howto.className = 'perf-howto';
+      howto.textContent = '読み方: 「サーバーの中」は GAS が受け取ってから返すまで（通信の行だけ）。内訳は重なる所があり、足しても「全体」になりません（「ロックの中」は、読む・書く・記録の一部を含みます）。画面で測った時間 −「全体」＝ 通信と GAS の立ち上がり。'; body.append(howto);
       const wrap = document.createElement('div'); wrap.className = 'perf-table-wrap';
       const table = document.createElement('table'); table.className = 'perf-table';
-      const thead = document.createElement('thead'); const tr0 = document.createElement('tr');
-      ['操作', '回数', '最後', '中央値', 'いちばん遅い', 'サーバーの中', '返事'].forEach((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; tr0.append(th); });
-      thead.append(tr0); table.append(thead);
+      const thead = document.createElement('thead'); const tr0 = document.createElement('tr'); const tr1 = document.createElement('tr');
+      const addTh = (tr, t, cls, span) => { const th = document.createElement('th'); th.textContent = t; th.scope = 'col'; if (cls) th.className = cls; Object.keys(span || {}).forEach((k) => th.setAttribute(k, String(span[k]))); tr.append(th); };
+      addTh(tr0, '操作', 'perf-op', { rowspan: 2 }); addTh(tr0, '回数', 'num', { rowspan: 2 }); addTh(tr0, '画面で測った時間（秒）', 'perf-group', { colspan: 3 }); addTh(tr0, 'サーバーの中（秒・中央値）', 'perf-group is-server', { colspan: 1 + SERVER_PARTS.length }); addTh(tr0, '返事（KB）', 'num', { rowspan: 2 });
+      PERF_HEAD.slice(2, -1).forEach((t, i) => addTh(tr1, t, 'num' + (i === 3 ? ' is-server-first' : i > 3 ? ' is-part' : '')));
+      thead.append(tr0, tr1); table.append(thead);
       const tbody = document.createElement('tbody');
       rows.forEach((r) => {
-        const tr = document.createElement('tr'); if (/^save:/.test(r.what)) tr.className = 'is-key';
-        [r.label + (r.errors ? `（断り・失敗 ${r.errors}）` : ''), String(r.n), sec(r.last), sec(r.median), sec(r.max), r.server == null ? '—' : sec(r.server) + (r.wait ? `（待ち ${sec(r.wait)}）` : ''), r.kb == null ? '—' : r.kb + ' KB'].forEach((t, i) => { const td = document.createElement(i ? 'td' : 'th'); td.textContent = t; if (i) td.className = 'num'; else td.scope = 'row'; tr.append(td); });
+        const tr = document.createElement('tr'); if (/^save:|^api:saveOrderBatch$/.test(r.what)) tr.className = 'is-key';
+        perfCells(r).forEach((t, i) => { const td = document.createElement(i ? 'td' : 'th'); td.textContent = t; if (i) td.className = 'num' + (i === 5 ? ' is-server-first' : i > 5 && i < 13 ? ' is-part' : ''); else { td.scope = 'row'; td.className = 'perf-op'; } tr.append(td); });
         tbody.append(tr);
       });
-      table.append(tbody); wrap.append(table); card.append(wrap);
+      table.append(tbody); wrap.append(table); body.append(wrap);
     }
-    const counts = document.createElement('p'); counts.className = 'perf-counts'; counts.textContent = `ほかの保存と重なった（BUSY） ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号で送り直した ${perfCount.resend} 回`; card.append(counts);
+    const counts = document.createElement('p'); counts.className = 'perf-counts'; counts.textContent = `ほかの保存と重なった（BUSY） ${perfCount.busy} 回・通信の失敗 ${perfCount.network} 回・同じ操作番号で送り直した ${perfCount.resend} 回`; body.append(counts);
     const actions = document.createElement('div'); actions.className = 'modal-actions';
     const copy = makeButton('文字で写す', () => { try { navigator.clipboard.writeText(perfText()).then(() => toast('待ち時間の記録を写しました（貼り付けて送れます）。'), () => toast('写せませんでした。', true)); } catch { toast('写せませんでした。', true); } }, 'button button-secondary');
     actions.append(copy, makeButton('閉じる', () => root.replaceChildren(), 'button button-primary')); card.append(actions);
@@ -1630,6 +1647,7 @@
     back.addEventListener('click', (e) => { if (e.target === back) root.replaceChildren(); });
   }
   window.__livestockPerfTable = () => perfSummary(); // 試験の画面と、公開の後の計測で読む（中身は操作の名前とミリ秒だけ）
+  window.__livestockPerfText = () => perfText(); // 「文字で写す」と同じ文（試験の画面で読む・クリップボードは使わない）
   (() => {
     const node = $('#app-version'); if (!node) return;
     node.tabIndex = 0; node.setAttribute('role', 'button'); node.title = '長押し（または5回続けて押す）で、待ち時間の記録';

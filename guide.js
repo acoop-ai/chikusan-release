@@ -1,5 +1,5 @@
 'use strict';
-// 利用ガイド（版 livestock-order-api-0.2.6）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
+// 利用ガイド（版 livestock-order-api-0.2.7）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
 //   形（全システム共通の型）: 上に役割のタブ（畜産BY・店舗・倉庫）・全体の流れの図1枚・左に目次（本文と連動）・右に本文。
 //   図は GAS が返す「箱と番号の丸」の構造のデータを、ここで DOM に描く。文字は全部 textContent（GAS の文字を HTML として入れない）。
 
@@ -12,19 +12,43 @@ const safeId = (v) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '');
 const scroller = () => document.querySelector('.guide-main');
 
 // ------------------------------------------------------------ 図（全体の流れ・画面の略図）
-function drawFlow(flow, role) {
-  const box = document.getElementById('guide-flow'); box.replaceChildren();
-  if (!flow || !Array.isArray(flow.steps)) { box.hidden = true; return; }
-  box.append(el('h2', 'guide-flow-title', flow.title || '流れ'));
+/** 流れの1本（箱と矢印）。あなたの役割の箱に「あなた」 */
+function flowChain(steps, role) {
   const list = el('ol', 'guide-flow-list');
-  flow.steps.forEach((step, i) => {
-    const li = el('li', 'guide-flow-step' + (step.role === role ? ' is-you' : ''));
-    if (step.role === role) li.append(el('span', 'guide-flow-you', 'あなた'));
+  steps.forEach((step, i) => {
+    const you = step.role === role;
+    const li = el('li', 'guide-flow-step' + (you ? ' is-you' : ''));
+    if (you) li.append(el('span', 'guide-flow-you', 'あなた'));
     li.append(el('strong', '', step.who), el('span', 'guide-flow-what', step.what), el('small', '', 'いつ: ' + (step.when || '')), el('small', '', '画面: ' + (step.where || '')));
     list.append(li);
-    if (i < flow.steps.length - 1) list.append(el('li', 'guide-flow-arrow', '→'));
+    if (i < steps.length - 1) { const arrow = el('li', 'guide-flow-arrow', '→'); arrow.setAttribute('aria-hidden', 'true'); list.append(arrow); }
   });
-  box.append(list); box.hidden = false;
+  return list;
+}
+/**
+ * 発注の流れ。0.2.7（PO 2026-11-01）: 2段（flow.rows＝ふだんの発注／集約発注の商品だけ）。集約の段は表と同じ紫の地と「集約」の札・段の頭に1行の説明。
+ *   前の GAS（0.2.6 まで）の1本（flow.steps）も描く＝GAS を貼るのと画面を押し出すのと、どちらが先でもよい
+ */
+function drawFlow(flow, role) {
+  const box = document.getElementById('guide-flow'); box.replaceChildren();
+  const okRow = (r) => r && Array.isArray(r.steps) && r.steps.length;
+  const rows = !flow ? [] : Array.isArray(flow.rows) ? flow.rows.filter(okRow) : okRow(flow) ? [{ steps: flow.steps }] : [];
+  if (!rows.length) { box.hidden = true; return; }
+  box.append(el('h2', 'guide-flow-title', flow.title || '流れ'));
+  rows.forEach((row) => {
+    const part = el('div', 'guide-flow-row' + (row.kind ? ' is-' + safeId(row.kind) : ''));
+    if (row.label) {
+      part.setAttribute('role', 'group'); part.setAttribute('aria-label', row.label);
+      const head = el('p', 'guide-flow-row-head');
+      if (row.badge) head.append(el('span', 'agg-badge', row.badge));
+      head.append(el('strong', 'guide-flow-row-label', row.label));
+      if (row.note) head.append(el('span', 'guide-flow-note', row.note));
+      part.append(head);
+    }
+    part.append(flowChain(row.steps, role));
+    box.append(part);
+  });
+  box.hidden = false;
 }
 
 function drawSketch(sketch) {

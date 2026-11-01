@@ -459,3 +459,45 @@ tr.is-aggregate>td.col-sum,tr.is-aggregate>td.col-cap,tr.is-aggregate>td.col-res
 .brand strong{white-space:nowrap}
 .topbar .button,.topbar-center{white-space:nowrap}
 @media(max-width:480px){.brand{gap:7px}.brand-mark{width:30px;height:30px;border-radius:9px}.brand strong{font-size:13px;letter-spacing:0}.topbar-center #status-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.topbar-center{gap:0}.account-area{gap:5px}.guide-button{padding:6px 7px;gap:4px}.topbar .button{padding-left:9px;padding-right:9px}}
+
+/* 0.2.7 ご利用ガイドの発注の流れを2段に（PO 2026-11-01）: 1段目＝ふだんの発注・2段目＝集約発注の商品だけ（表と同じ薄い紫の地・左の紫の線・「集約」の札）。
+   箱は段ごとに同じ幅で並ぶ（どの段も3つ＝倉庫が同じ列）。スマホでは「あなた」を箱の中の上に置く（役割の名前に重ねない） */
+.guide-flow-row{margin:0;padding:8px 10px 10px;border:1px solid #e3e9e5;border-radius:9px;background:#fff}
+.guide-flow-row+.guide-flow-row{margin-top:10px}
+.guide-flow-row-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;margin:0 0 14px;color:var(--ink)}
+.guide-flow-row-label{font-size:15px}
+.guide-flow-note{flex:1 1 24em;color:#3e2f5c;font-size:14px;line-height:1.5}
+.guide-flow-row-head .agg-badge{margin:0;padding:0 8px;font-size:12px}
+.guide-flow-row.is-aggregate{border-color:#d6c8f0;background:#f4eefd;box-shadow:inset 4px 0 0 #8e6fd0;padding-left:14px}
+.guide-flow-row.is-aggregate .guide-flow-row-label{color:#4b2f86}
+.guide-flow-row.is-aggregate .guide-flow-step{border-color:#d6c8f0;background:#fff}
+.guide-flow-row.is-aggregate .guide-flow-step.is-you{border:2px solid #3f8a5f;background:#f4faf5}
+.guide-flow-step{align-content:start;min-width:0}
+@media(max-width:760px){
+  .guide-flow-row{padding:6px 7px 8px}.guide-flow-row.is-aggregate{padding-left:11px}
+  .guide-flow-row-head{margin-bottom:6px}.guide-flow-note{font-size:13px}
+  .guide-flow-step{font-size:13px}.guide-flow-step strong{font-size:14px}
+  .guide-flow-you{position:static;justify-self:start;margin:0 0 2px;padding:0 6px;font-size:11px}
+  /* BY と倉庫のページが 375 で右に切れていた（0.2.5〜・略図の長い1区画「在庫数と注文の合計（…）」が折り返さず、本文の列を広げていた）。列は画面の幅まで・長い区画は折り返す */
+  .guide-layout{grid-template-columns:minmax(0,1fr)}.sk-cell.is-grow{white-space:normal}
+}
+
+/* 0.2.7 待ち時間の記録にサーバーの中の内訳（PO 2026-11-01）: 見出しは2段・単位は見出しに・操作の列は横に動かしても残る・広い画面では横に広げる */
+.perf-modal{width:min(1080px,100%);max-width:none}
+.perf-body{padding:10px 20px 4px}
+.perf-howto{margin:0 0 .6rem;padding:6px 10px;border-left:3px solid #9fc8ad;background:#f4faf5;color:#2c3c32;font-size:13px}
+.perf-table thead th{z-index:3;white-space:normal;vertical-align:bottom}
+.perf-table thead th.num{min-width:4.4em}
+/* 見出しの2段目は1段目のすぐ下に止める。1段目の高さは決めておく（32px・折り返さない）＝開いたときに測らない（測ると描き直しが1回増える） */
+.perf-table thead th.perf-group{height:32px;padding-top:0;padding-bottom:0;line-height:31px;white-space:nowrap;text-align:center;border-bottom:1px solid #d7dfd9}
+.perf-table thead tr:nth-child(2) th{top:32px}
+.perf-table thead th.perf-group.is-server{background:#eaf3ee}
+.perf-table .is-server-first{border-left:2px solid #c9d8ce}
+.perf-table .is-part{color:#3e4f45}
+.perf-table th.perf-op{position:sticky;left:0;z-index:2;background:#fff;min-width:9.5em;max-width:13em}
+.perf-table thead th.perf-op{z-index:4;background:#f3f7f4}
+.perf-table tr.is-key th.perf-op{background:#f1f8ee}
+@media (max-width:600px){.perf-body{padding:8px 12px 2px}.perf-table th.perf-op{min-width:7.5em}}
+
+/* 0.2.7 週ごとの表の商品名の下の1行の頭に「月」（その月の数・PO 2026-11-01）。右の端の「合計」（その行の日の合計）と見分ける */
+.stock-strip-month{font-weight:800}
