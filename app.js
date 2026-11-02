@@ -1,10 +1,10 @@
 (() => {
   'use strict';
-  // テンチャク【畜産】（畜産発注）の画面（版 livestock-order-api-0.2.7）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
+  // テンチャク【畜産】（畜産発注）の画面（版 livestock-order-api-0.2.8）。業務データ・アカウント表・鍵は置かない。だれか・何ができるかは、毎回 GAS が決める。
   // 0.2.6（速さ・PO 2026-10-31）: 送っている間に入れた欄はためて、終わったら1回で送る・保存の返事の残数をそのまま当てる（読み直さない）・
   //   BY の商品の操作は返事の表で描く（読み直さない）・札があるときは bootstrap を呼ばない（ログインの画面を出すときだけ）・待ち時間の記録（版の行を長押し）
   // 信頼境界: GAS から届く文字（商品名・店名など）は、人が打った文字。画面に出すときは textContent か esc() を通す。
-  const APP_VERSION = 'livestock-order-api-0.2.7';
+  const APP_VERSION = 'livestock-order-api-0.2.8';
   const CONFIG = window.APP_CONFIG || {};
   const GAS_URL = String(CONFIG.gasUrl || '');
   const GAS_URL_OK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GAS_URL);
@@ -1249,7 +1249,7 @@
         else {
           try {
             const parsed = PS.parseSheet(await PS.readXlsx(await file.arrayBuffer()));
-            entry.items = parsed.items; entry.fileErrors = parsed.fileErrors;
+            entry.items = parsed.items; entry.fileErrors = parsed.fileErrors; entry.fileNotes = parsed.fileNotes || [];
             if (!parsed.items.length && !parsed.fileErrors.length) entry.fileErrors.push('「入力」のシートに、商品の行がありません（見出しの下の2行目から書きます）。');
           } catch (error) { entry.fileErrors.push(error.userMessage || '用紙を読めませんでした。ダウンロードした登録用紙に書いて、もう一度選んでください。'); }
         }
@@ -1302,6 +1302,7 @@
     root.innerHTML = `<div class="modal-backdrop"><section class="modal-card upload-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><h2 id="modal-title">登録用紙の確かめ</h2><button type="button" class="modal-close" aria-label="閉じる">×</button></div><div class="sheet-view">
       <div class="sheet-files"><ul>${files}</ul><button type="button" class="button button-secondary product-upload">もう一度アップロード</button><input class="product-upload-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden></div>
       ${notes.map((n) => `<p class="form-note">${esc(n)}</p>`).join('')}
+      ${(result.fileNotes || []).map((n) => `<p class="form-note sheet-file-note">${esc(n)}</p>`).join('')}
       ${result.fileErrors.length ? `<div class="sheet-file-errors" role="alert"><strong>用紙を確かめてください</strong><ul>${result.fileErrors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
       <div class="sheet-counts">${['new', 'update', 'same', 'error'].map((k) => `<div class="sheet-count is-${k}"><span>${SHEET_STATUS[k]}</span><b>${c[k]}</b></div>`).join('')}</div>
       <p class="sheet-message ${blocked ? 'is-error' : ''}">${esc(message)}</p>
@@ -1358,7 +1359,9 @@
     }
   }
 
-  const EDITOR_KEYS = ['manufacturer', 'name', 'specification', 'jan', 'packSize', 'costNet', 'costGross', 'priceNet', 'priceGross', 'marginRate', 'leadDays', 'orderType'];
+  // 入れる欄（確かめて送る欄）。税込（総額）・値入率は入れる欄ではない（0.2.8〜 PO 2026-11-02: 本体から自動・入れられない・送らない・GAS も計算し直す）
+  const EDITOR_KEYS = ['manufacturer', 'name', 'specification', 'jan', 'packSize', 'costNet', 'priceNet', 'leadDays', 'orderType'];
+  const AUTO_FIELDS = [['costGross', '原価（税込・総額）', '原価（本体）を入れると出ます'], ['priceGross', '売価（税込・総額）', '売価（本体）を入れると出ます'], ['marginRate', '値入率', '原価と売価（本体）を入れると出ます']];
   function openProductEditor(existing = {}) {
     const aliases = Array.isArray(existing.aliases) ? existing.aliases.join('、') : '';
     const v = (x) => esc(x === undefined || x === null ? '' : x);
@@ -1366,6 +1369,9 @@
     const must = '<span class="must-tag">※必須</span>';
     const note = (key) => `<small class="field-note" data-note-for="${key}" aria-live="polite"></small>`;
     const field = (label, key, attrs, tag = '') => `<label><span class="field-label">${label}${tag}</span><input name="${key}" ${attrs} value="${v(existing[key])}"></label>${note(key)}`;
+    // 自動の欄: 入れられない（readonly）・Tab で止まらない（tabindex -1）・灰色の地と「自動」の印。値は bindAutoCalc が本体から入れる（開いたときの保存の値は使わない）
+    const auto = ([key, label, hint]) => `<label><span class="field-label">${label}<span class="auto-tag">自動</span></span><input name="${key}" class="auto-field" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="${hint}" value=""></label><small class="field-note auto-note" data-auto-note="${key}" aria-live="polite"></small>`;
+    const autoOf = (key) => auto(AUTO_FIELDS.find((x) => x[0] === key));
     const fields = `<input name="productId" type="hidden" value="${v(existing.id)}">`
       + `<p class="form-note editor-rule">「※必須」の2つ（商品名・締切（何日前））は、空では保存できません。ほかの欄も書いてください（空でも保存はできます。黄色の印の欄は、あとで埋めてください）。</p>`
       + field('メーカー', 'manufacturer', 'maxlength="120"')
@@ -1375,11 +1381,11 @@
       + field('JAN（数字だけ 8〜13けた）', 'jan', 'inputmode="numeric" maxlength="32" autocomplete="off"')
       + field('入数（1以上の整数）', 'packSize', 'type="number" min="1" step="1"')
       + `<label>検索用の読み・別名<input name="aliases" placeholder="例：ぶたばら、豚三枚肉" value="${esc(aliases)}"></label>`
-      + `<div class="form-grid"><div>${field('原価（本体）', 'costNet', 'type="number" min="0" step="0.01"')}</div><div>${field('原価（税込・総額）', 'costGross', 'type="number" min="0" step="0.01"')}</div><div>${field('売価（本体）', 'priceNet', 'type="number" min="0" step="0.01"')}</div><div>${field('売価（税込・総額）', 'priceGross', 'type="number" min="0" step="0.01"')}</div><div>${field('値入率（0.29 か 29）', 'marginRate', 'type="number" min="0" step="any"')}</div></div>`
+      + `<div class="form-grid"><div>${field('原価（本体）', 'costNet', 'type="number" min="0" step="0.01"')}</div><div>${autoOf('costGross')}</div><div>${field('売価（本体）', 'priceNet', 'type="number" min="0" step="0.01"')}</div><div>${autoOf('priceGross')}</div><div>${autoOf('marginRate')}</div></div>`
       + field('締切（何日前）', 'leadDays', 'type="number" min="0" max="30" step="1" inputmode="numeric" placeholder="例 2"', must)
       + `<p class="form-note">着く日の何日前の 12:00 で、店の注文を締め切るか（0〜30）。例 2 なら、11/1 着は 10/30 12:00 まで店が直せます。</p>`
       + `<label><span class="field-label">発注区分${must}</span><select name="orderType"><option value="normal"${OB && OB.isAggregate(existing) ? '' : ' selected'}>通常発注</option><option value="aggregate"${OB && OB.isAggregate(existing) ? ' selected' : ''}>集約発注</option></select></label>${note('orderType')}`
-      + `<p class="form-note">集約発注＝BY が集めて振り分ける商品。締切の後、BY が「確定する」を押すまで確定しません（画面では薄い紫の地と「集約」の印）。</p><p class="form-note calc-note">税込（総額）は、本体を入れると自動で入ります（本体×1.08 の端数切り捨て）。値入率も、空なら（売価−原価）÷売価 で入ります。手で直した数は、そのままです。</p>`;
+      + `<p class="form-note">集約発注＝BY が集めて振り分ける商品。締切の後、BY が「確定する」を押すまで確定しません（画面では薄い紫の地と「集約」の印）。</p><p class="form-note calc-note">灰色の「自動」の欄（税込・総額と値入率）は、本体から自動で計算します（税込＝本体×1.08 の端数切り捨て・値入率＝（売価−原価）÷売価）。手では入れられません。保存のときも、本体から計算し直します。</p>`;
     showModal(isNew ? '商品を追加' : '商品を直す', fields, async (form) => {
       const bad = checkEditor(form, true);
       if (bad) { bad.focus(); throw new Error('赤い字の欄を直してください（理由は欄の下）。'); }
@@ -1390,7 +1396,7 @@
     });
     const form = $('#modal-root form');
     form.noValidate = true; // 理由は欄の下に出す（ブラウザの吹き出しに任せない）
-    bindAutoCalc(form);
+    bindAutoCalc(form, isNew ? null : existing);
     bindEditorNotes(form, !isNew);
     if (isNew) bindSimilar(form);
   }
@@ -1425,24 +1431,32 @@
     if (showNow) checkEditor(form, true); // いまの商品を開いたときは、空の欄に初めから印（BY の知らせから来たとき、どこを埋めるか分かる）
   }
 
-  /** 税込（総額）・値入率を自動で入れる。開いたときに空か計算どおりの欄は「自動」＝本体を変えると追随する。手で直した欄は上書きしない（GAS も同じ計算をし直す） */
-  function bindAutoCalc(form) {
+  /**
+   * 税込（総額）・値入率の自動の欄（0.2.8〜 PO 2026-11-02「入力はできないようにしたほうが間違いが起こりません」）。
+   *   開いたとき・本体を打つたびに、本体から計算して出す（保存の値は使わない。GAS が保存のときに同じ計算をし直す）。値入率は「29.29%」の形。
+   *   計算できないときは、欄の中に理由（本体が空・原価が売価より高い）。直すとき（existing）は、保存の値が計算と違えば欄の下に「前に保存した値」（本体を打つと消す）
+   */
+  function bindAutoCalc(form, existing) {
     if (!PS || !form) return;
     const el = (n) => form.elements[n];
-    const num = (n) => (el(n).value === '' ? '' : Number(el(n).value));
-    const pairs = [['costNet', 'costGross'], ['priceNet', 'priceGross']];
-    const auto = {};
-    pairs.forEach(([net, gross]) => { auto[gross] = el(gross).value === '' || Number(el(gross).value) === PS.grossOf(num(net)); });
-    auto.marginRate = el('marginRate').value === '' || Number(el('marginRate').value) === PS.marginOf(num('costNet'), num('priceNet'));
-    const mark = () => ['costGross', 'priceGross', 'marginRate'].forEach((n) => el(n).classList.toggle('is-auto', Boolean(auto[n]) && el(n).value !== ''));
+    const num = (n) => (el(n).value === '' || (el(n).validity && el(n).validity.badInput) ? '' : Number(el(n).value));
+    const shown = (key, v) => (v === '' || v == null ? '' : key === 'marginRate' ? PS.marginPercent(v) : String(v));
+    const hint = Object.fromEntries(AUTO_FIELDS.map(([k, , h]) => [k, h]));
+    const noteOf = (k) => form.querySelector(`[data-auto-note="${k}"]`);
     const recalc = () => {
-      pairs.forEach(([net, gross]) => { if (auto[gross]) { const g = PS.grossOf(num(net)); el(gross).value = g === '' ? '' : String(g); } });
-      if (auto.marginRate) { const m = PS.marginOf(num('costNet'), num('priceNet')); el('marginRate').value = m === '' ? '' : String(m); }
-      mark();
+      const c = num('costNet'), p = num('priceNet');
+      const rec = { costGross: PS.grossOf(c), priceGross: PS.grossOf(p), marginRate: PS.marginOf(c, p) };
+      AUTO_FIELDS.forEach(([k]) => { el(k).value = shown(k, rec[k]); });
+      el('marginRate').placeholder = c !== '' && p !== '' && rec.marginRate === '' ? (Number(p) > 0 && Number(c) > Number(p) ? '原価が売価より高いので出ません' : '売価（本体）を確かめてください') : hint.marginRate;
+      return rec;
     };
-    ['costNet', 'priceNet'].forEach((n) => el(n).addEventListener('input', recalc));
-    ['costGross', 'priceGross', 'marginRate'].forEach((n) => el(n).addEventListener('input', () => { auto[n] = el(n).value === ''; mark(); }));
-    mark();
+    const first = recalc();
+    if (existing) AUTO_FIELDS.forEach(([k]) => { // 0.2.8 より前に手で入れた値（計算と違う）。保存すると計算の値になることを、先に見せる
+      const was = existing[k]; const box = noteOf(k); if (!box || was === '' || was == null) return;
+      if (first[k] !== '' && Number(was) === Number(first[k])) return;
+      box.textContent = `前に保存した値は ${shown(k, was)}。「保存」を押すと、自動の値（${first[k] === '' ? '空' : shown(k, first[k])}）になります。`;
+    });
+    ['costNet', 'priceNet'].forEach((n) => el(n).addEventListener('input', () => { AUTO_FIELDS.forEach(([k]) => { const box = noteOf(k); if (box) box.textContent = ''; }); recalc(); }));
   }
 
   /** 「商品を追加」で商品名・JAN を打つと、マスターにある似た商品（上から5件）を出す。押すと、その商品を直す画面へ（同じ商品を2つ作らない） */

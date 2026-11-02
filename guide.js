@@ -1,5 +1,5 @@
 'use strict';
-// 利用ガイド（版 livestock-order-api-0.2.7）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
+// 利用ガイド（版 livestock-order-api-0.2.8）。本文と図は、ログインの後に GAS から受け取る（公開の画面に本文を置かない）。
 //   形（全システム共通の型）: 上に役割のタブ（畜産BY・店舗・倉庫）・全体の流れの図1枚・左に目次（本文と連動）・右に本文。
 //   図は GAS が返す「箱と番号の丸」の構造のデータを、ここで DOM に描く。文字は全部 textContent（GAS の文字を HTML として入れない）。
 
@@ -59,7 +59,7 @@ function drawSketch(sketch) {
     const r = el('div', 'sk-row' + (row.kind ? ' is-' + safeId(row.kind) : ''));
     (row.cells || []).forEach((cell) => {
       const c = el('div', 'sk-cell');
-      ['grow', 'tall', 'plain', 'primary', 'check', 'note'].forEach((k) => { if (cell[k]) c.classList.add('is-' + k); });
+      ['grow', 'tall', 'plain', 'primary', 'check', 'note', 'auto'].forEach((k) => { if (cell[k]) c.classList.add('is-' + k); }); // auto＝自動の欄（0.2.8・商品の窓の灰色の欄と同じ見た目）
       if (cell.text) c.append(el('span', 'sk-text', cell.text));
       if (cell.mark) { c.classList.add('is-marked'); c.append(el('span', 'sk-mark', cell.mark)); marks.push(cell.mark + '＝' + (cell.text || '')); }
       r.append(c);

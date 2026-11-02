@@ -11,7 +11,8 @@
   const MAX_PART_BYTES = 20 * 1024 * 1024; // 中の1つのファイルを開いた大きさの上限（壊れた・細工した用紙で止まらないように）
   const SHEET_NAME = '入力';
   const NUMBER_MAX = 9999999;
-  // 見出しの名前で列を探す（並びは決め打ちしない・「※必須」は外して比べる）。old＝0.2.3 までの11列の用紙だけにある列（読むだけ・いまの用紙には無い）
+  // 見出しの名前で列を探す（並びは決め打ちしない・「※必須」は外して比べる）。old＝0.2.3 までの11列の用紙だけにある列（いまの用紙には無い）
+  //   computed＝本体から計算する欄（0.2.8〜 用紙に列があっても読まない・確かめの表に知らせを出す。GAS の PRODUCT_COMPUTED_KEYS と同じ）
   const COLUMNS = [
     { key: 'manufacturer', label: 'メーカー', kind: 'text', names: ['メーカー', 'メーカー名'] },
     { key: 'name', label: '商品名', kind: 'text', names: ['商品名'] },
@@ -19,10 +20,10 @@
     { key: 'jan', label: 'JAN', kind: 'jan', names: ['JAN', 'JANコード'] },
     { key: 'packSize', label: '入数', kind: 'number', names: ['入数'] },
     { key: 'costNet', label: '原価（本体）', kind: 'number', names: ['原価（本体）', '原価'] },
-    { key: 'costGross', label: '原価（総額）', kind: 'number', names: ['原価（総額）', '原価（税込）'], old: true },
+    { key: 'costGross', label: '原価（総額）', kind: 'number', names: ['原価（総額）', '原価（税込）'], old: true, computed: true },
     { key: 'priceNet', label: '売価（本体）', kind: 'number', names: ['売価（本体）', '売価'] },
-    { key: 'priceGross', label: '売価（総額）', kind: 'number', names: ['売価（総額）', '売価（税込）'], old: true },
-    { key: 'marginRate', label: '値入率', kind: 'number', names: ['値入率'], old: true },
+    { key: 'priceGross', label: '売価（総額）', kind: 'number', names: ['売価（総額）', '売価（税込）'], old: true, computed: true },
+    { key: 'marginRate', label: '値入率', kind: 'number', names: ['値入率'], old: true, computed: true },
     { key: 'aliases', label: '別名', kind: 'aliases', names: ['別名', '検索用の読み・別名', '読み・別名'], old: true },
     { key: 'leadDays', label: '締切（何日前）', kind: 'lead', names: ['締切（何日前）', '締切(何日前)', '締切', '何日前'] },
     { key: 'orderType', label: '発注区分', kind: 'type', names: ['発注区分', '区分'] }
@@ -31,6 +32,7 @@
   const FILL_LATER = ['manufacturer', 'specification', 'jan', 'packSize', 'costNet', 'priceNet']; // 空でも登録できる6つ（あとで埋める・注文は止めない）。商品名・締切（何日前）は空なら登録できない
   const JAN_DIGITS = /^[0-9]{8,13}$/; // JAN の形（数字だけ・8〜13けた）。店内のコードも認めるときは、ここと GAS の JAN_DIGITS_ だけを直す
   const KEYS = COLUMNS.map((c) => c.key);
+  const COMPUTED_KEYS = COLUMNS.filter((c) => c.computed).map((c) => c.key); // 税込（総額）・値入率（人は入れない・送らない）
   const NUMBER_KEYS = COLUMNS.filter((c) => c.kind === 'number').map((c) => c.key);
   const LABEL = Object.fromEntries(COLUMNS.map((c) => [c.key, c.label]));
   const MAX_LEAD = 30;
@@ -83,20 +85,24 @@
     if (!Number.isFinite(c) || !Number.isFinite(p) || p <= 0 || c > p) return '';
     return Math.round((p - c) / p * 10000) / 10000;
   }
-  /** その操作で書いた欄（空でない欄） */
+  /** その操作で書いた欄（空でない欄）。税込（総額）・値入率は書く欄ではないので入らない */
   function givenKeys(item) {
     const given = {};
-    KEYS.forEach((k) => { const v = item[k]; if (k === 'aliases' ? (Array.isArray(v) && v.length) : (v !== '' && v != null)) given[k] = true; });
+    KEYS.forEach((k) => { const v = item[k]; if (!COMPUTED_KEYS.includes(k) && (k === 'aliases' ? (Array.isArray(v) && v.length) : (v !== '' && v != null))) given[k] = true; });
     return given;
   }
-  /** 本体を書いて総額が空なら総額を、原価・売価を書いて値入率が空なら値入率を入れる。入れた欄の名前を返す */
-  function fillComputed(rec, given) {
-    given = given || givenKeys(rec);
-    const done = [];
-    if (given.costNet && !given.costGross) { rec.costGross = grossOf(rec.costNet); done.push('costGross'); }
-    if (given.priceNet && !given.priceGross) { rec.priceGross = grossOf(rec.priceNet); done.push('priceGross'); }
-    if (!given.marginRate && (given.costNet || given.priceNet)) { const m = marginOf(rec.costNet, rec.priceNet); if (m !== '') { rec.marginRate = m; done.push('marginRate'); } }
-    return done;
+  /** 税込（総額）と値入率を、本体からいつも入れる（0.2.8〜 GAS の fillComputed_ と同じ・前の値や用紙の値は見ない）。入れた欄の名前を返す（確かめの表の「（計算）」） */
+  function fillComputed(rec) {
+    rec.costGross = grossOf(rec.costNet);
+    rec.priceGross = grossOf(rec.priceNet);
+    rec.marginRate = marginOf(rec.costNet, rec.priceNet);
+    return COMPUTED_KEYS.slice();
+  }
+  /** 値入率を画面に出す形（0.2929 → 29.29%）。前に「29」（％の数）で入れた値も読む。空なら '' */
+  function marginPercent(value) {
+    if (value === '' || value == null || !Number.isFinite(Number(value))) return '';
+    const n = Number(value); const pct = Math.abs(n) <= 1 ? n * 100 : n;
+    return (Math.round(pct * 100) / 100).toFixed(2) + '%';
   }
 
   // ------------------------------------------------------------ 照合の鍵（GAS の janKey_・matchKey_ と同じ）
@@ -313,15 +319,15 @@
     return list.slice(0, 30);
   }
 
-  /** 読んだシートを、行ごとの商品にする。返す値: { items: [{ row, item, errors }], fileErrors: [], columns: [見つかった見出し] } */
+  /** 読んだシートを、行ごとの商品にする。返す値: { items: [{ row, item, errors }], fileErrors: [], fileNotes: [読まない列の知らせ], columns: [見つかった見出し] } */
   function parseSheet(sheet) {
     const rows = sheet && sheet.rows ? sheet.rows : new Map();
-    const fileErrors = [];
+    const fileErrors = []; const fileNotes = [];
     const numbers = Array.from(rows.keys()).sort((a, b) => a - b);
     // 見出しの行: 上から10行の中で「商品名」のある行（見出しは名前で探す・並びは決め打ちしない）
     const nameKeys = COLUMNS.find((c) => c.key === 'name').names.map(headerKey);
     const headerRow = numbers.slice(0, 10).find((rn) => (rows.get(rn) || []).some((c) => c && nameKeys.includes(headerKey(cellString(c)))));
-    if (!headerRow) return { items: [], fileErrors: ['「入力」のシートに「商品名」の見出しが見つかりません。ダウンロードした登録用紙の1行目（見出し）は消さないでください。'], columns: [] };
+    if (!headerRow) return { items: [], fileErrors: ['「入力」のシートに「商品名」の見出しが見つかりません。ダウンロードした登録用紙の1行目（見出し）は消さないでください。'], fileNotes, columns: [] };
     const map = {};
     (rows.get(headerRow) || []).forEach((cell, ci) => {
       if (!cell) return;
@@ -332,13 +338,16 @@
     });
     const items = [];
     const noLeadCol = map.leadDays === undefined; // 締切の列の無い古い用紙（0.2.3 の11列）は、行ごとにエラー
+    const skipped = COLUMNS.filter((c) => c.computed && map[c.key] !== undefined); // 用紙にある「総額・値入率」の列（読まない・黙って捨てずに知らせる）
+    if (skipped.length) fileNotes.push(skipped.map((c) => '「' + c.label + '」').join('') + 'の列は読みません（原価・売価の本体から、登録すると自動で計算します）。');
     numbers.filter((rn) => rn > headerRow).forEach((rn) => {
       const cells = rows.get(rn) || [];
-      if (COLUMNS.every((col) => map[col.key] === undefined || isBlank(cells[map[col.key]]))) return; // 空の行は読まない
+      if (COLUMNS.every((col) => map[col.key] === undefined || isBlank(cells[map[col.key]]))) return; // 空の行は読まない（総額・値入率だけ書いた行は読む＝商品名が空のエラーで知らせる）
       const errors = []; const item = {};
       COLUMNS.forEach((col) => {
         const cell = map[col.key] === undefined ? null : cells[map[col.key]];
-        if (col.kind === 'text') item[col.key] = readText(cell, col, errors);
+        if (col.computed) item[col.key] = ''; // 読まない（形も確かめない）。plan の fillComputed が本体から入れる
+        else if (col.kind === 'text') item[col.key] = readText(cell, col, errors);
         else if (col.kind === 'jan') item[col.key] = readJan(cell, errors);
         else if (col.kind === 'number') item[col.key] = readNumber(cell, col, errors);
         else if (col.kind === 'lead') item[col.key] = readLead(cell, errors);
@@ -349,7 +358,7 @@
       if (item.leadDays === '' && !errors.some((e) => e.startsWith('締切'))) errors.push(noLeadCol ? '締切（何日前）が空です（前の用紙には、この列がありません。新しい登録用紙をダウンロードして書いてください）。' : fieldProblem('leadDays', ''));
       items.push({ row: rn, item, errors });
     });
-    return { items, fileErrors, columns: COLUMNS.filter((c) => map[c.key] !== undefined).map((c) => c.label) };
+    return { items, fileErrors, fileNotes, columns: COLUMNS.filter((c) => map[c.key] !== undefined).map((c) => c.label) };
   }
 
   // ------------------------------------------------------------ 照合して、確かめの表を作る（GAS の saveProductsBatch_ と同じ決まり）
@@ -373,8 +382,10 @@
     const many = files.length > 1;
     const fileErrors = [];
     const lines = [];
+    const fileNotes = [];
     files.forEach((f) => {
       (f.fileErrors || []).forEach((e) => fileErrors.push((many ? f.name + ': ' : '') + e));
+      (f.fileNotes || []).forEach((n) => fileNotes.push((many ? f.name + ': ' : '') + n));
       (f.items || []).forEach((x) => lines.push({ file: f.name, row: x.row, at: (many ? f.name + ' の ' : '') + x.row + '行目', item: x.item, errors: x.errors.slice(), status: 'error', changes: [], computed: [], target: null, record: null }));
     });
     const total = lines.length;
@@ -419,25 +430,25 @@
       const given = givenKeys(l.item);
       if (!l.target) {
         const rec = Object.assign(blankProduct(), l.item);
-        l.computed = fillComputed(rec, given); l.record = rec; l.status = 'new'; l.missing = missingFields(rec);
+        l.computed = fillComputed(rec); l.record = rec; l.status = 'new'; l.missing = missingFields(rec);
         if (!rec.orderType) { rec.orderType = 'normal'; l.notes = ['発注区分が空なので「通常発注」にします']; } // GAS も同じ（新しい商品の空は通常発注）
         return;
       }
       const before = l.target; const rec = {};
       KEYS.forEach((k) => { rec[k] = given[k] ? l.item[k] : (before[k] == null ? (k === 'aliases' ? [] : '') : before[k]); });
-      l.computed = fillComputed(rec, given); l.record = rec;
+      l.computed = fillComputed(rec); l.record = rec; // 前に手で入れた総額・値入率が計算と違えば「更新」（→ 計算の値）になる。GAS も同じ
       l.changes = KEYS.filter((k) => !sameValue(k, before[k], rec[k])).map((k) => ({ key: k, label: LABEL[k], before: before[k], after: rec[k], computed: l.computed.includes(k) }));
       l.status = l.changes.length ? 'update' : 'same'; l.missing = missingFields(rec);
     });
     const counts = { new: 0, update: 0, same: 0, error: 0 };
     lines.forEach((l) => { counts[l.status]++; if (!l.missing || l.status === 'error') l.missing = []; if (!l.notes || l.status === 'error') l.notes = []; });
     const incomplete = lines.filter((l) => l.missing.length).length; // 埋めていない項目のある行（黄色の注意・登録はできる）
-    return { lines, counts, incomplete, fileErrors, total, canSave: !fileErrors.length && !counts.error && total > 0 && (counts.new + counts.update) > 0 };
+    return { lines, counts, incomplete, fileErrors, fileNotes, total, canSave: !fileErrors.length && !counts.error && total > 0 && (counts.new + counts.update) > 0 };
   }
 
-  /** GAS へ送る行（エラーの無いときだけ使う）。空の欄は ''（＝いまの値のまま） */
+  /** GAS へ送る行（エラーの無いときだけ使う）。空の欄は ''（＝いまの値のまま）。税込（総額）・値入率は送らない（GAS が本体から計算する） */
   function payload(result) {
-    return result.lines.map((l) => { const out = { row: l.row }; KEYS.forEach((k) => { out[k] = l.item[k]; }); return out; });
+    return result.lines.map((l) => { const out = { row: l.row }; KEYS.forEach((k) => { if (!COMPUTED_KEYS.includes(k)) out[k] = l.item[k]; }); return out; });
   }
 
   // ------------------------------------------------------------ 手入力のたすけ
@@ -462,5 +473,5 @@
     return searching ? '当たる商品はありません。' : '';
   }
 
-  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, TEMPLATE_KEYS, FILL_LATER, ORDER_TYPE_LABEL, orderTypeKey, fieldProblem, missingFields, missingLabel, grossOf, marginOf, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
+  root.ProductSheet = Object.freeze({ TAX_PERCENT, MAX_ROWS, MAX_FILE_BYTES, SHEET_NAME, COLUMNS, LABEL, TEMPLATE_KEYS, FILL_LATER, COMPUTED_KEYS, ORDER_TYPE_LABEL, orderTypeKey, fieldProblem, missingFields, missingLabel, grossOf, marginOf, marginPercent, givenKeys, fillComputed, janKey, matchKey, nameSpecKey, readXlsx, parseSheet, plan, payload, similar, managerEmptyText });
 })(typeof window !== 'undefined' ? window : globalThis);
